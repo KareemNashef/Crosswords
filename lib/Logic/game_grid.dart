@@ -3,40 +3,63 @@ import 'package:flutter/material.dart';
 import 'dart:math' show Point;
 import 'dart:convert';
 import 'package:flutter/services.dart' show rootBundle;
+import 'package:shared_preferences/shared_preferences.dart';
 
 // Local imports
-import 'package:crosswords/Logic/puzzle_models.dart';
+import 'package:crosswords/Logic/cell_model.dart';
+import 'package:crosswords/Logic/clue_model.dart';
 import 'package:crosswords/Logic/animated_popup.dart';
 
+// ========== Game Grid ========== //
+
 class GameGrid extends StatefulWidget {
+  // ===== Class variables ===== //
+
   final String puzzleNumber;
-  GameGrid({super.key, required this.puzzleNumber});
+
+  // Constructor
+  const GameGrid({super.key, required this.puzzleNumber});
+
   @override
   GameGridState createState() => GameGridState();
 }
 
 class GameGridState extends State<GameGrid> with TickerProviderStateMixin {
+  // ===== Class variables ===== //
+
+  // State variables
   int gridSize = 15;
   bool isAnimating = false;
   bool _isLoading = true;
   bool _colorsInitialized = false;
 
-  late AnimationController animationController;
-
-  // Store the specific Clue object and block index for the currently selected word
+  // Game variables
   Clue? activeClue;
   int? activeBlockIndexInClue;
-  String? activeDirection; // "horizontal" or "vertical"
+  String? activeDirection;
 
+  // Grid variables
   List<CellModel> cellsToAnimate = [];
   List<List<CellModel>> gridCellData = [];
-  List<Clue> allParsedClues = []; // Stores Clue objects parsed with block info
+  List<Clue> allParsedClues = [];
   List<List<GlobalKey>> gridKeys = [];
 
+  // Colors
   late Color _initialCellColor;
   late Color _correctCellColor;
   late Color _errorCellColor;
 
+  // Swipe detection
+  Offset? _swipeStartPosition;
+  int? _swipeCellRow;
+  int? _swipeCellCol;
+
+  // Controllers
+  late AnimationController animationController;
+
+  // ===== Class methods ===== //
+
+  // Initialize state
   @override
   void initState() {
     super.initState();
@@ -47,6 +70,7 @@ class GameGridState extends State<GameGrid> with TickerProviderStateMixin {
     _loadPuzzleData();
   }
 
+  // Initialize colors
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
@@ -62,6 +86,7 @@ class GameGridState extends State<GameGrid> with TickerProviderStateMixin {
     }
   }
 
+  // Reapply initial colors
   void _reapplyInitialColors() {
     if (!_colorsInitialized || gridCellData.isEmpty) return;
     for (int r = 0; r < gridSize; r++) {
@@ -71,13 +96,12 @@ class GameGridState extends State<GameGrid> with TickerProviderStateMixin {
           cell.displayColor = Colors.black;
         } else if (cell.enteredChar.isEmpty) {
           cell.displayColor = _initialCellColor;
-        } else {
-          // Color based on correctness is already set during input
         }
       }
     }
   }
 
+  // Load puzzle data
   Future<void> _loadPuzzleData() async {
     try {
       final String solutionJsonString = await rootBundle.loadString(
@@ -121,18 +145,20 @@ class GameGridState extends State<GameGrid> with TickerProviderStateMixin {
 
       _assignCluesToCells();
 
-      if (mounted) {
-        setState(() {
-          _isLoading = false;
-          if (_colorsInitialized) _reapplyInitialColors();
-        });
-      }
+await _loadSavedProgress();
+
+if (mounted) {
+  setState(() {
+    _isLoading = false;
+    if (_colorsInitialized) _reapplyInitialColors();
+  });
+}
     } catch (e) {
-      print("Error loading puzzle data: $e");
       if (mounted) setState(() => _isLoading = false);
     }
   }
 
+  // Initialize gridCellData
   void _initializeGridCells(List<List<String>> solutionGrid) {
     Color tempInitialColor =
         _colorsInitialized ? _initialCellColor : Colors.grey.shade300;
@@ -152,6 +178,7 @@ class GameGridState extends State<GameGrid> with TickerProviderStateMixin {
     );
   }
 
+  // Initialize gridKeys
   void _initializeKeys() {
     gridKeys = List.generate(
       gridSize,
@@ -159,6 +186,7 @@ class GameGridState extends State<GameGrid> with TickerProviderStateMixin {
     );
   }
 
+  // Assign clues to cells
   void _assignCluesToCells() {
     // Renamed
     // Clear any previous assignments
@@ -168,7 +196,6 @@ class GameGridState extends State<GameGrid> with TickerProviderStateMixin {
         gridCellData[r][c].acrossBlockIndex = null;
         gridCellData[r][c].downClue = null;
         gridCellData[r][c].downBlockIndex = null;
-        // gridCellData[r][c].displayNumber = null; // No longer needed or set
       }
     }
 
@@ -200,6 +227,7 @@ class GameGridState extends State<GameGrid> with TickerProviderStateMixin {
     }
   }
 
+  // Get cell rect
   Rect? _getCellRect(int row, int col) {
     if (row < 0 ||
         row >= gridSize ||
@@ -223,8 +251,154 @@ class GameGridState extends State<GameGrid> with TickerProviderStateMixin {
     );
   }
 
-  // In GameGridState class
+  // Save progress
+  void _savePuzzleProgress() async {
+    final prefs = await SharedPreferences.getInstance();
 
+    // Create a map to store entered characters
+    Map<String, dynamic> progressData = {};
+
+
+
+    // Store all entered characters
+    for (int r = 0; r < gridSize; r++) {
+      for (int c = 0; c < gridSize; c++) {
+        final cell = gridCellData[r][c];
+        if (!cell.isBlackSquare && cell.enteredChar.isNotEmpty) {
+          // Use a key format that combines row and column
+          progressData['${r}_$c'] = cell.enteredChar;
+        }
+      }
+    }
+
+    // Progress percentage
+    int progress = 0;
+    for (int r = 0; r < gridSize; r++) {
+      for (int c = 0; c < gridSize; c++) {
+        final cell = gridCellData[r][c];
+        if (!cell.isBlackSquare && cell.enteredChar.isNotEmpty) {
+          progress += 1;
+        }
+      }
+    }
+    progressData['progress'] = progress == gridSize * gridSize ? "Done" : "In Progress";
+
+    // Save as JSON
+    await prefs.setString(
+      'puzzle_progress_${widget.puzzleNumber}',
+      jsonEncode(progressData),
+    );
+
+    
+  }
+
+  // Load progress
+  Future<void> _loadSavedProgress() async {
+    final prefs = await SharedPreferences.getInstance();
+    final savedProgressJson = prefs.getString(
+      'puzzle_progress_${widget.puzzleNumber}',
+    );
+
+    if (savedProgressJson != null) {
+      try {
+        final Map<String, dynamic> progressData = jsonDecode(savedProgressJson);
+
+        // Apply saved characters to the grid
+        progressData.forEach((key, value) {
+          final coords = key.split('_');
+          if (coords.length == 2) {
+            final r = int.tryParse(coords[0]);
+            final c = int.tryParse(coords[1]);
+
+            if (r != null &&
+                c != null &&
+                r >= 0 &&
+                r < gridSize &&
+                c >= 0 &&
+                c < gridSize) {
+              final cell = gridCellData[r][c];
+              if (!cell.isBlackSquare) {
+                cell.enteredChar = value;
+                // Update cell color based on correctness
+                if (cell.isCurrentCharCorrect) {
+                  cell.displayColor = _correctCellColor;
+                } else if (cell.enteredChar.isNotEmpty) {
+                  cell.displayColor = _errorCellColor;
+                }
+              }
+            }
+          }
+        });
+      } catch (e) {
+        // Handle error
+      }
+    }
+  }
+
+  // Show animated popup
+  void _showAnimatedPopup() {
+    if (!_colorsInitialized ||
+        activeClue == null ||
+        activeBlockIndexInClue == null) {
+      return;
+    }
+
+    setState(() => isAnimating = true);
+    animationController.reset();
+    animationController.forward();
+
+    final String currentClueText =
+        activeClue!.clueTexts[activeBlockIndexInClue!];
+    final String currentWordSolution =
+        activeClue!.blockSolutions[activeBlockIndexInClue!];
+
+    showDialog(
+      context: context,
+      barrierDismissible: true,
+      barrierColor: Colors.transparent,
+      builder: (BuildContext context) {
+        return AnimatedPopup(
+          cellsToAnimate: cellsToAnimate,
+          animationController: animationController,
+          direction: activeDirection!,
+          clueText: currentClueText,
+          wordSolution: currentWordSolution,
+          initialCellColor: _initialCellColor,
+          correctCellColor: _correctCellColor,
+          errorCellColor: _errorCellColor,
+onSubmitOrDismiss: (Map<int, String> enteredCharsMap) {
+  Navigator.of(context).pop();
+  for (final cell in cellsToAnimate) {
+    String? enteredForThisCell = enteredCharsMap[cell.animationIndex];
+    if (enteredForThisCell != null) {
+      cell.enteredChar = enteredForThisCell;
+      if (cell.isCurrentCharCorrect) {
+        cell.displayColor = _correctCellColor;
+      } else if (cell.enteredChar.isNotEmpty) {
+        cell.displayColor = _errorCellColor;
+      } else {
+        cell.displayColor = _initialCellColor;
+      }
+    }
+  }
+  
+  _savePuzzleProgress();
+},
+        );
+      },
+    ).then((_) {
+      animationController.reverse().whenComplete(() {
+        // Use whenComplete for safety
+        if (mounted) {
+          setState(() {
+            isAnimating = false;
+          });
+        }
+      });
+    });
+  }
+
+  // Handle swipe
   void _handleSwipe(int r, int c, String swipeGestureDirection) {
     if (isAnimating || gridCellData[r][c].isBlackSquare) return;
 
@@ -244,7 +418,7 @@ class GameGridState extends State<GameGrid> with TickerProviderStateMixin {
     }
 
     if (activeClue != null && activeBlockIndexInClue != null) {
-      cellsToAnimate.clear(); // Clear before populating
+      cellsToAnimate.clear();
       Point<int> startCoord =
           activeClue!.blockStartCoords[activeBlockIndexInClue!];
       int length = activeClue!.blockLengths[activeBlockIndexInClue!];
@@ -252,45 +426,34 @@ class GameGridState extends State<GameGrid> with TickerProviderStateMixin {
       if (activeDirection == "horizontal") {
         List<CellModel> physicalOrderCells = [];
         for (int i = 0; i < length; i++) {
-          // Collect cells from grid data (leftmost part of word to rightmost part)
           CellModel cell =
               gridCellData[startCoord.x.toInt()][startCoord.y.toInt() + i];
           physicalOrderCells.add(cell);
         }
 
-        // IF the main board visually shows "5 4 3 2 1" (RTL) for a word whose LTR data is "1 2 3 4 5",
-        // AND we want the popup to also represent this as "5 4 3 2 1" (RTL) where TextField[0] is for '5',
-        // THEN `cellsToAnimate` needs to be [CellFor5, CellFor4, ..., CellFor1].
-        // `physicalOrderCells` is [CellFor1, CellFor2, ..., CellFor5] because grid data is LTR.
-        // So, for RTL horizontal, we reverse `physicalOrderCells`.
         final bool isAppRTL =
             Localizations.localeOf(context).languageCode == 'ar';
         if (isAppRTL) {
-          // Only reverse if the app is in RTL mode for horizontal words
           physicalOrderCells = physicalOrderCells.reversed.toList();
         }
-        // Now, physicalOrderCells[0] is the CellModel for the char that should appear
-        // rightmost in the popup (e.g., '5').
 
         for (int i = 0; i < physicalOrderCells.length; i++) {
           CellModel cell = physicalOrderCells[i];
           final rect = _getCellRect(cell.row, cell.col);
           if (rect != null) {
             cell.originalRect = rect;
-            cell.animationIndex =
-                i; // So cellsToAnimate[0].animationIndex = 0 (for '5')
+            cell.animationIndex = i;
             cellsToAnimate.add(cell);
           }
         }
       } else {
-        // Vertical
         for (int i = 0; i < length; i++) {
           CellModel cellInWord =
               gridCellData[startCoord.x.toInt() + i][startCoord.y.toInt()];
           final rect = _getCellRect(cellInWord.row, cellInWord.col);
           if (rect != null) {
             cellInWord.originalRect = rect;
-            cellInWord.animationIndex = i; // Topmost is 0
+            cellInWord.animationIndex = i;
             cellsToAnimate.add(cellInWord);
           }
         }
@@ -302,80 +465,7 @@ class GameGridState extends State<GameGrid> with TickerProviderStateMixin {
     }
   }
 
-  void _showAnimatedPopup() {
-    if (!_colorsInitialized ||
-        activeClue == null ||
-        activeBlockIndexInClue == null)
-      return;
-
-    setState(() => isAnimating = true);
-    animationController.reset();
-    animationController.forward();
-
-    final String currentClueText =
-        activeClue!.clueTexts[activeBlockIndexInClue!];
-    final String currentWordSolution =
-        activeClue!.blockSolutions[activeBlockIndexInClue!];
-
-    showDialog(
-      context: context,
-      barrierDismissible: true, // Allow dismiss by tapping outside
-      barrierColor: Colors.transparent,
-      builder: (BuildContext context) {
-        return AnimatedPopup(
-          cellsToAnimate: cellsToAnimate,
-          animationController: animationController,
-          direction: activeDirection!,
-          clueText: currentClueText, // Pass only the specific clue text
-          wordSolution: currentWordSolution,
-          initialCellColor: _initialCellColor,
-          correctCellColor: _correctCellColor,
-          errorCellColor: _errorCellColor,
-          onSubmitOrDismiss: (Map<int, String> enteredCharsMap) {
-            // Map from cell animIndex to char
-            Navigator.of(context).pop(); // Dismiss popup
-            // Apply changes to gridCellData
-            for (final cell in cellsToAnimate) {
-              String? enteredForThisCell = enteredCharsMap[cell.animationIndex];
-              if (enteredForThisCell != null) {
-                cell.enteredChar = enteredForThisCell;
-                // Color is already set by AnimatedPopup's real-time feedback
-                // but we can re-affirm it here if needed or if popup doesn't fully manage it
-                if (cell.isCurrentCharCorrect) {
-                  cell.displayColor = _correctCellColor;
-                } else if (cell.enteredChar.isNotEmpty) {
-                  // only mark error if something was entered
-                  cell.displayColor = _errorCellColor;
-                } else {
-                  cell.displayColor =
-                      _initialCellColor; // Back to initial if cleared
-                }
-              }
-            }
-          },
-        );
-      },
-    ).then((_) {
-      animationController.reverse().whenComplete(() {
-        // Use whenComplete for safety
-        if (mounted) {
-          setState(() {
-            isAnimating = false;
-            // Ensure grid reflects final state of characters and colors
-            // This re-renders the main grid with updated cell states
-          });
-        }
-      });
-    });
-  }
-
-  // Swipe detection (no major changes, ensure it covers the whole grid)
-  Offset? _swipeStartPosition;
-  int? _swipeCellRow;
-  int? _swipeCellCol;
-
   void _onPanStart(DragStartDetails details, int row, int col) {
-    // print("PanStart on $row, $col"); // Debugging
     if (isAnimating || gridCellData[row][col].isBlackSquare) return;
     _swipeStartPosition = details.globalPosition;
     _swipeCellRow = row;
@@ -386,32 +476,30 @@ class GameGridState extends State<GameGrid> with TickerProviderStateMixin {
     if (isAnimating ||
         _swipeStartPosition == null ||
         _swipeCellRow == null ||
-        _swipeCellCol == null)
+        _swipeCellCol == null) {
       return;
+    }
     if (gridCellData[_swipeCellRow!][_swipeCellCol!].isBlackSquare) {
       _swipeStartPosition = null;
-      return; // Reset if started on black somehow or became black
+      return;
     }
 
     final dx = details.globalPosition.dx - _swipeStartPosition!.dx;
     final dy = details.globalPosition.dy - _swipeStartPosition!.dy;
-    const double swipeThreshold = 25.0; // Increased threshold slightly
+    const double swipeThreshold = 25.0;
 
     if (dx.abs() > swipeThreshold || dy.abs() > swipeThreshold) {
       String swipeDir = "";
       if (dx.abs() > dy.abs()) {
         if (dx < 0) swipeDir = 'left';
-        // else swipeDir = 'right'; // If you need right swipe
       } else {
         if (dy > 0) swipeDir = 'down';
-        // else swipeDir = 'up'; // If you need up swipe
       }
 
       if (swipeDir.isNotEmpty) {
-        // print("Swipe detected: $swipeDir on $_swipeCellRow, $_swipeCellCol"); // Debugging
         _handleSwipe(_swipeCellRow!, _swipeCellCol!, swipeDir);
       }
-      _swipeStartPosition = null; // Reset after handling
+      _swipeStartPosition = null;
       _swipeCellRow = null;
       _swipeCellCol = null;
     }
@@ -423,16 +511,20 @@ class GameGridState extends State<GameGrid> with TickerProviderStateMixin {
     _swipeCellCol = null;
   }
 
+  // Method to get the contrast color
   Color _getContrastColor(Color backgroundColor) {
     final luminance = backgroundColor.computeLuminance();
     return luminance > 0.5 ? Colors.black : Colors.white;
   }
 
+  // Dispose the animation controller
   @override
   void dispose() {
     animationController.dispose();
     super.dispose();
   }
+
+  // ===== Build method ===== //
 
   @override
   Widget build(BuildContext context) {
@@ -448,48 +540,42 @@ class GameGridState extends State<GameGrid> with TickerProviderStateMixin {
       appBar: AppBar(
         centerTitle: true,
         automaticallyImplyLeading: false,
-                // Set the height
         toolbarHeight: 120,
-        
-        title: Text('لغز رقم ${widget.puzzleNumber}',
-        textAlign: TextAlign.center,
-        style: TextStyle(
-                color: Theme.of(context).colorScheme.primary,
-                fontWeight: FontWeight.bold,
-              ),),
-        
+
+        title: Text(
+          'لغز رقم ${widget.puzzleNumber}',
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            color: Theme.of(context).colorScheme.primary,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
       ),
       body: Center(
-        // Center the AspectRatio
         child: AspectRatio(
-          // Use AspectRatio to maintain square shape
           aspectRatio: 1.0,
           child: Container(
-            margin: const EdgeInsets.all(
-              8.0,
-            ), // Margin for the whole grid container
+            margin: const EdgeInsets.all(8.0),
             decoration: BoxDecoration(
               border: Border.all(color: Colors.grey.shade700, width: 2),
-              color: Colors.grey.shade300, // Background for spacing
+              color: Colors.grey.shade300,
             ),
             child: GridView.builder(
               physics: const NeverScrollableScrollPhysics(),
               itemCount: gridSize * gridSize,
               gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
                 crossAxisCount: gridSize,
-                mainAxisSpacing: 1.5, // Spacing between cells
-                crossAxisSpacing: 1.5, // Spacing between cells
+                mainAxisSpacing: 1.5,
+                crossAxisSpacing: 1.5,
               ),
               itemBuilder: (context, index) {
-                // Calculate correct cell position based on RTL setting
                 final row = index ~/ gridSize;
                 final col =
                     isRtl
                         ? gridSize - 1 - (index % gridSize)
                         : index % gridSize;
 
-                // Get the correct cell data
-                final cell = gridCellData[row][col]; // Adjust col based on RTL
+                final cell = gridCellData[row][col];
 
                 Color cellEffectiveColor = cell.displayColor;
                 if (!cell.isBlackSquare &&
@@ -499,7 +585,6 @@ class GameGridState extends State<GameGrid> with TickerProviderStateMixin {
                 } else if (cell.isBlackSquare) {
                   cellEffectiveColor = Colors.black;
                 }
-                // If char entered, color is already set by correctness checks
 
                 return GestureDetector(
                   key: gridKeys[row][col],
@@ -507,10 +592,7 @@ class GameGridState extends State<GameGrid> with TickerProviderStateMixin {
                   onPanUpdate: (details) => _onPanUpdate(details),
                   onPanEnd: _onPanEnd,
                   child: Container(
-                    decoration: BoxDecoration(
-                      color: cellEffectiveColor,
-                      // borderRadius: BorderRadius.circular(1), // Optional rounded corners
-                    ),
+                    decoration: BoxDecoration(color: cellEffectiveColor),
                     alignment: Alignment.center,
                     child: Stack(
                       children: [
@@ -518,9 +600,7 @@ class GameGridState extends State<GameGrid> with TickerProviderStateMixin {
                           Center(
                             child: Text(
                               cell.enteredChar,
-                              textDirection:
-                                  TextDirection
-                                      .rtl, // Ensure char itself is RTL
+                              textDirection: TextDirection.rtl,
                               style: TextStyle(
                                 color: _getContrastColor(cellEffectiveColor),
                                 fontSize: gridSize > 15 ? 12 : 16,

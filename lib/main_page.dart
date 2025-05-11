@@ -1,5 +1,8 @@
 // Flutter imports
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 // Local imports
 import 'package:crosswords/Logic/game_grid.dart';
@@ -15,27 +18,43 @@ class MainPage extends StatefulWidget {
 class MainPageState extends State<MainPage> with TickerProviderStateMixin {
   // App color selection bar
   Widget puzzleSelectionBar(context) {
-    Widget puzzleBar(BuildContext context, String puzzleNumber) {
+    
+Widget puzzleBar(BuildContext context, String puzzleNumber) {
+  return FutureBuilder<String?>(
+    future: _getPuzzleProgress(puzzleNumber),
+    builder: (context, snapshot) {
+      final progress = snapshot.data;
+      Color bgColor;
+      if (progress == "Done") {
+        bgColor = Theme.of(context).colorScheme.primaryContainer;
+      } else if (progress == "In Progress") {
+        bgColor = Theme.of(context).colorScheme.errorContainer;
+      } else {
+        bgColor = Theme.of(context).colorScheme.secondaryContainer;
+      }
+
       return OutlinedButton(
         style: OutlinedButton.styleFrom(
           fixedSize: const Size(350, 50),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(12),
           ),
-          backgroundColor: Theme.of(context).colorScheme.primaryContainer,
+          backgroundColor: bgColor,
         ),
         onPressed: () {
-          // Open puzzle
           Navigator.push(
             context,
             MaterialPageRoute(
               builder: (context) => GameGrid(puzzleNumber: puzzleNumber),
             ),
-          );
+          ).then((_) => setState(() {}));
         },
         child: Text(puzzleNumber),
       );
-    }
+    },
+  );
+}
+
 
     return Column(
       children: [
@@ -62,6 +81,17 @@ class MainPageState extends State<MainPage> with TickerProviderStateMixin {
       ],
     );
   }
+
+  // Check if there is saved progress
+Future<String?> _getPuzzleProgress(String puzzleNumber) async {
+  final prefs = await SharedPreferences.getInstance();
+  final savedProgress = prefs.getString('puzzle_progress_$puzzleNumber');
+  if (savedProgress != null) {
+    final progressMap = jsonDecode(savedProgress);
+    return progressMap['progress'];  // Access the "progress" entry
+  }
+  return null;
+}
 
   @override
   Widget build(BuildContext context) {
@@ -91,7 +121,7 @@ class MainPageState extends State<MainPage> with TickerProviderStateMixin {
                 size: 32,
               ),
             ),
-SizedBox(width: 44),
+            SizedBox(width: 44),
             // Title
             Text(
               "كلمات متقاطعة",
@@ -101,10 +131,6 @@ SizedBox(width: 44),
                 fontWeight: FontWeight.bold,
               ),
             ),
-
-            
-
-
           ],
         ),
         centerTitle: true,

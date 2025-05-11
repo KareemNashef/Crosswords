@@ -1,24 +1,27 @@
 // Flutter imports
 import 'package:flutter/material.dart';
-import 'dart:ui'; // For ImageFilter
+import 'dart:ui';
+import 'package:flutter/services.dart';
 
 // Local imports
-import 'package:crosswords/Logic/puzzle_models.dart';
+import 'package:crosswords/Logic/cell_model.dart';
+
+// ========== Animated Popup ========== //
 
 class AnimatedPopup extends StatefulWidget {
-  final List<CellModel>
-  cellsToAnimate; // These are copies, modify their enteredChar/color
+  // ===== Class variables ===== //
+
+  final List<CellModel> cellsToAnimate;
   final AnimationController animationController;
   final String direction;
-  final String clueText; // Issue 4: Only specific clue
-  final String wordSolution; // Full solution for the current word
-  final Function(Map<int, String>)
-  onSubmitOrDismiss; // Returns map of animIndex to char
-
+  final String clueText;
+  final String wordSolution;
+  final Function(Map<int, String>) onSubmitOrDismiss;
   final Color initialCellColor;
   final Color correctCellColor;
   final Color errorCellColor;
 
+  // Constructor
   const AnimatedPopup({
     super.key,
     required this.cellsToAnimate,
@@ -33,16 +36,23 @@ class AnimatedPopup extends StatefulWidget {
   });
 
   @override
-  _AnimatedPopupState createState() => _AnimatedPopupState();
+  AnimatedPopupState createState() => AnimatedPopupState();
 }
 
-class _AnimatedPopupState extends State<AnimatedPopup> {
-  late List<TextEditingController> _cellTextControllers;
+class AnimatedPopupState extends State<AnimatedPopup> {
+  // ===== Class variables ===== //
+
+  // State variables
   late List<FocusNode> _cellFocusNodes;
-  // Store local copies of cell states for real-time updates in popup
   late List<String> _currentEnteredChars;
   late List<Color> _currentCellColors;
 
+  // Controllers
+  late List<TextEditingController> _cellTextControllers;
+
+  // ===== Class methods ===== //
+
+  // Initialization
   @override
   void initState() {
     super.initState();
@@ -76,19 +86,18 @@ class _AnimatedPopupState extends State<AnimatedPopup> {
     }
   }
 
-  void _onAnimationStatusChanged(AnimationStatus status) {
-    if (status == AnimationStatus.completed) {
+// Animation listener - Fixed version
+void _onAnimationStatusChanged(AnimationStatus status) {
+  if (status == AnimationStatus.completed) {
+    // Add a small delay to ensure the TextField widgets are properly built
+    Future.delayed(const Duration(milliseconds: 50), () {
       if (mounted && _cellFocusNodes.isNotEmpty) {
-        // Initial focus on the first logical field according to cellsToAnimate order.
-        // If cellsToAnimate[0] is for '5' (visual right), this is correct.
         int focusIdx = _currentEnteredChars.indexWhere((char) => char.isEmpty);
         if (focusIdx == -1) {
-          // All full
-          focusIdx = 0; // Focus the first one (e.g., for '5')
+          focusIdx = 0;
         }
 
         if (focusIdx >= 0 && focusIdx < _cellFocusNodes.length) {
-          print("AnimatedPopup: Initial focus on index $focusIdx");
           FocusScope.of(context).requestFocus(_cellFocusNodes[focusIdx]);
           _cellTextControllers[focusIdx].selection = TextSelection(
             baseOffset: 0,
@@ -96,16 +105,13 @@ class _AnimatedPopupState extends State<AnimatedPopup> {
           );
         }
       }
-    }
+    });
   }
+}
 
+  // Text controller listener
   void _onCellTextChanged(int index) {
-    // index is the index in _cellTextControllers
     String newChar = _cellTextControllers[index].text;
-    final bool isAppRtl =
-        Localizations.localeOf(context).languageCode == 'ar'; // Get it once
-    // print("_onCellTextChanged: index=$index, newChar='$newChar', direction=${widget.direction}, isRtl=$isAppRtl, cellSolution='${widget.cellsToAnimate[index].solutionChar}'");
-
     if (newChar.length > 1) {
       newChar = newChar.substring(newChar.length - 1);
       _cellTextControllers[index].text = newChar;
@@ -121,34 +127,28 @@ class _AnimatedPopupState extends State<AnimatedPopup> {
         _currentCellColors[index] = widget.initialCellColor;
       } else {
         if (newChar == widget.cellsToAnimate[index].solutionChar) {
-          _currentCellColors[index] =
-              widget.correctCellColor; // ensure correct variable name
+          _currentCellColors[index] = widget.correctCellColor;
           isCorrectEntry = true;
         } else {
-          _currentCellColors[index] =
-              widget.errorCellColor; // ensure correct variable name
+          _currentCellColors[index] = widget.errorCellColor;
         }
       }
     });
 
-    // Auto-advance focus only if the entry is correct.
-    // Advancement is always to the next logical character's text field (index + 1).
-    // This corresponds to moving visually left for RTL horizontal if targetX is LTR-like.
     if (newChar.isNotEmpty && isCorrectEntry) {
       if (index < _cellTextControllers.length - 1) {
-        // print("  Advancing focus from $index to ${index + 1}");
         FocusScope.of(context).requestFocus(_cellFocusNodes[index + 1]);
         _cellTextControllers[index + 1].selection = TextSelection(
           baseOffset: 0,
           extentOffset: _cellTextControllers[index + 1].text.length,
         );
-      } else {
-        // print("  At last field (visually leftmost for RTL horizontal), index=$index");
-        // Optionally call _handleDismissOrSubmit() here if desired
       }
     }
+
+
   }
 
+  // Dispose
   @override
   void dispose() {
     widget.animationController.removeStatusListener(_onAnimationStatusChanged);
@@ -161,19 +161,22 @@ class _AnimatedPopupState extends State<AnimatedPopup> {
     super.dispose();
   }
 
+  // Contrast color
   Color _getContrastColor(Color backgroundColor) {
     final luminance = backgroundColor.computeLuminance();
     return luminance > 0.5 ? Colors.black : Colors.white;
   }
 
+  // Handle dismiss or submit
   void _handleDismissOrSubmit() {
     Map<int, String> result = {};
     for (int i = 0; i < widget.cellsToAnimate.length; i++) {
-      // Use animationIndex of the original CellModel as key
       result[widget.cellsToAnimate[i].animationIndex] = _currentEnteredChars[i];
     }
     widget.onSubmitOrDismiss(result);
   }
+
+  // ===== Build method ===== //
 
   @override
   Widget build(BuildContext context) {
@@ -181,33 +184,26 @@ class _AnimatedPopupState extends State<AnimatedPopup> {
     final double centerX = screenSize.width / 2;
     final double centerY = screenSize.height / 2;
 
-    // CRASH GUARD: Ensure cellSize is valid
     final double potentialCellSize =
         widget.cellsToAnimate.isNotEmpty
             ? widget.cellsToAnimate.first.originalRect.width
-            : 0.0; // Default to 0 if no cells or rect not ready
+            : 0.0;
 
     if (widget.cellsToAnimate.isEmpty || potentialCellSize <= 1.0) {
-      // Use 1.0 as a minimum practical size
-      // Fallback if cells are not ready or too small, prevents crash
-      // You might want to show a loading indicator or an error message
-      // For now, just dismiss and let the parent handle it.
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) {
-          _handleDismissOrSubmit(); // Attempt to gracefully close
+          _handleDismissOrSubmit();
         }
       });
-      return const SizedBox.shrink(); // Render nothing, will be dismissed
+      return const SizedBox.shrink();
     }
-    final double cellSize =
-        potentialCellSize; // Now cellSize is guaranteed > 1.0
+    final double cellSize = potentialCellSize;
 
     final double cellSpacing = 4.0;
-    final bool isRtl = Localizations.localeOf(context).languageCode == 'ar';
 
     final Animation<double> blurAnimation = Tween<double>(
       begin: 0.0,
-      end: 5.0, // Reduced blur slightly
+      end: 5.0,
     ).animate(
       CurvedAnimation(
         parent: widget.animationController,
@@ -218,7 +214,7 @@ class _AnimatedPopupState extends State<AnimatedPopup> {
     return WillPopScope(
       onWillPop: () async {
         _handleDismissOrSubmit();
-        return true; // Allow back button to pop
+        return true;
       },
       child: AnimatedBuilder(
         animation: widget.animationController,
@@ -228,15 +224,13 @@ class _AnimatedPopupState extends State<AnimatedPopup> {
               cellSpacing;
           final startX = centerX - totalAnimatedCellsWidth / 2;
 
-          // Position clue text above the cells
-          final double clueTextTop =
-              centerY - cellSize - 80; // Adjust as needed
+          final double clueTextTop = centerY - cellSize - 80;
 
           return Stack(
             children: [
               Positioned.fill(
                 child: GestureDetector(
-                  onTap: _handleDismissOrSubmit, // Dismiss on tap outside
+                  onTap: _handleDismissOrSubmit,
                   child: BackdropFilter(
                     filter: ImageFilter.blur(
                       sigmaX: blurAnimation.value,
@@ -260,8 +254,7 @@ class _AnimatedPopupState extends State<AnimatedPopup> {
                   child: Material(
                     color: Colors.transparent,
                     child: Text(
-                      widget
-                          .clueText, // Issue 4: Display only the specific clue
+                      widget.clueText,
                       textAlign: TextAlign.center,
                       textDirection: TextDirection.rtl,
                       style: const TextStyle(
@@ -283,22 +276,15 @@ class _AnimatedPopupState extends State<AnimatedPopup> {
               ...List.generate(widget.cellsToAnimate.length, (index) {
                 final cellData = widget.cellsToAnimate[index];
                 final originalRect = cellData.originalRect;
-                final int visualIndex =
-                    cellData
-                        .animationIndex; // This is 0 for first logical char, 1 for second, etc.
+                final int visualIndex = cellData.animationIndex;
 
                 double targetX;
                 if (widget.direction == "horizontal") {
-                  // This makes popup "5 4 3 2 1" (RTL) if cellsToAnimate[0] is '5', etc.
                   targetX =
                       startX +
                       ((widget.cellsToAnimate.length - 1 - visualIndex) *
                           (cellSize + cellSpacing));
-                  //  targetX = startX + (visualIndex * (cellSize + cellSpacing));
                 } else {
-                  // Vertical
-                  // Topmost (e.g. 'A', animIndex 0) to the right. Bottommost (e.g. 'C', animIndex 2) to the left.
-                  // This displays "A B C" (RTL for vertical)
                   targetX =
                       startX +
                       ((widget.cellsToAnimate.length - 1 - visualIndex) *
@@ -307,7 +293,7 @@ class _AnimatedPopupState extends State<AnimatedPopup> {
                 final targetPosition = Offset(
                   targetX,
                   centerY - (cellSize / 2) + 10,
-                ); // Adjusted padding
+                );
 
                 final currentPosition =
                     Offset.lerp(
@@ -316,21 +302,13 @@ class _AnimatedPopupState extends State<AnimatedPopup> {
                       widget.animationController.value,
                     )!;
 
-                final scale =
-                    1.0 +
-                    (0.1 *
-                        widget
-                            .animationController
-                            .value); // Reduced scale effect
-
-                // ... inside the AnimatedBuilder, inside the List.generate for cellsToAnimate ...
+                final scale = 1.0 + (0.1 * widget.animationController.value);
                 return Positioned(
                   left: currentPosition.dx,
                   top: currentPosition.dy,
                   child: Transform.scale(
                     scale: scale,
                     child: Container(
-                      // This is the colored cell background
                       width: originalRect.width,
                       height: originalRect.height,
                       decoration: BoxDecoration(
@@ -353,24 +331,21 @@ class _AnimatedPopupState extends State<AnimatedPopup> {
                       child:
                           widget.animationController.value < 1.0
                               ? Text(
-                                (visualIndex + 1).toString(),
+                                _cellTextControllers[index].text,
                                 style: TextStyle(
                                   color: _getContrastColor(
                                     _currentCellColors[index],
                                   ),
                                   fontSize: 14,
                                   fontWeight: FontWeight.bold,
+                                  decoration: TextDecoration.none,
                                 ),
+                                textWidthBasis: TextWidthBasis.parent,
                               )
                               : Material(
-                                // <<<<<<<<<< WRAP HERE
-                                type:
-                                    MaterialType
-                                        .transparency, // To keep existing background color
+                                type: MaterialType.transparency,
                                 child: SizedBox(
-                                  width:
-                                      cellSize *
-                                      0.9, // Make it slightly smaller than cell for visual fit
+                                  width: cellSize * 0.9,
                                   height: cellSize * 0.9,
                                   child: TextField(
                                     controller: _cellTextControllers[index],
@@ -391,11 +366,8 @@ class _AnimatedPopupState extends State<AnimatedPopup> {
                                     decoration: const InputDecoration(
                                       border: InputBorder.none,
                                       counterText: "",
-                                      contentPadding: EdgeInsets.all(
-                                        0,
-                                      ), // Ensure padding is zero or minimal (e.g., EdgeInsets.symmetric(vertical: 2))
-                                      isDense:
-                                          true, // Reduces intrinsic padding
+                                      contentPadding: EdgeInsets.all(0),
+                                      isDense: true,
                                     ),
                                     cursorColor: _getContrastColor(
                                       _currentCellColors[index],
@@ -406,10 +378,7 @@ class _AnimatedPopupState extends State<AnimatedPopup> {
                                                     1)
                                             ? TextInputAction.done
                                             : TextInputAction.next,
-                                    // ... inside TextField ...
                                     onSubmitted: (_) {
-                                      // "Next" action on keyboard always tries to move to the next logical field.
-                                      // This corresponds to moving visually left for RTL horizontal.
                                       if (index <
                                           _cellTextControllers.length - 1) {
                                         FocusScope.of(context).requestFocus(
@@ -424,31 +393,23 @@ class _AnimatedPopupState extends State<AnimatedPopup> {
                                                   .length,
                                         );
                                       } else {
-                                        // At the last logical field (visually leftmost for RTL horizontal)
                                         _handleDismissOrSubmit();
                                       }
                                     },
                                   ),
                                 ),
-                              ), // END Material WRAP >>>>>>>>>>
+                              ),
                     ),
                   ),
                 );
               }),
-              // Optional: A single "Done" button if preferred over auto-dismiss or last field submit
               Positioned(
-                bottom: centerY + cellSize + 30, // Adjust as needed
+                bottom: centerY + cellSize + 30,
                 left: 0,
                 right: 0,
                 child: Opacity(
                   opacity: widget.animationController.value,
-                  child: Center(
-                    child: SizedBox.shrink(),
-                    // ElevatedButton(
-                    //   onPressed: _handleDismissOrSubmit,
-                    //   child: const Text("تم", style: TextStyle(fontSize: 16)),
-                    // ),
-                  ),
+                  child: Center(child: SizedBox.shrink()),
                 ),
               ),
             ],
