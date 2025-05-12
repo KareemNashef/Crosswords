@@ -48,6 +48,8 @@ class GameGridState extends State<GameGrid> with TickerProviderStateMixin {
   late Color _initialCellColor;
   late Color _correctCellColor;
   late Color _errorCellColor;
+  late Color _selectionCellColor;
+  Map<CellModel, Color> originalColors = {};
 
   // Swipe detection
   Offset? _swipeStartPosition;
@@ -78,6 +80,7 @@ class GameGridState extends State<GameGrid> with TickerProviderStateMixin {
       _initialCellColor = Theme.of(context).colorScheme.secondaryContainer;
       _correctCellColor = Theme.of(context).colorScheme.primaryContainer;
       _errorCellColor = Theme.of(context).colorScheme.errorContainer;
+      _selectionCellColor = Colors.amber; // More visible yellow
       _colorsInitialized = true;
       if (!_isLoading) {
         _reapplyInitialColors();
@@ -145,14 +148,14 @@ class GameGridState extends State<GameGrid> with TickerProviderStateMixin {
 
       _assignCluesToCells();
 
-await _loadSavedProgress();
+      await _loadSavedProgress();
 
-if (mounted) {
-  setState(() {
-    _isLoading = false;
-    if (_colorsInitialized) _reapplyInitialColors();
-  });
-}
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+          if (_colorsInitialized) _reapplyInitialColors();
+        });
+      }
     } catch (e) {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -258,8 +261,6 @@ if (mounted) {
     // Create a map to store entered characters
     Map<String, dynamic> progressData = {};
 
-
-
     // Store all entered characters
     for (int r = 0; r < gridSize; r++) {
       for (int c = 0; c < gridSize; c++) {
@@ -276,20 +277,19 @@ if (mounted) {
     for (int r = 0; r < gridSize; r++) {
       for (int c = 0; c < gridSize; c++) {
         final cell = gridCellData[r][c];
-        if (!cell.isBlackSquare && cell.enteredChar.isNotEmpty) {
+        if (cell.isBlackSquare || cell.enteredChar.isNotEmpty) {
           progress += 1;
         }
       }
     }
-    progressData['progress'] = progress == gridSize * gridSize ? "Done" : "In Progress";
+    progressData['progress'] =
+        progress == gridSize * gridSize ? "Done" : "In Progress";
 
     // Save as JSON
     await prefs.setString(
       'puzzle_progress_${widget.puzzleNumber}',
       jsonEncode(progressData),
     );
-
-    
   }
 
   // Load progress
@@ -366,27 +366,43 @@ if (mounted) {
           initialCellColor: _initialCellColor,
           correctCellColor: _correctCellColor,
           errorCellColor: _errorCellColor,
-onSubmitOrDismiss: (Map<int, String> enteredCharsMap) {
-  Navigator.of(context).pop();
-  for (final cell in cellsToAnimate) {
-    String? enteredForThisCell = enteredCharsMap[cell.animationIndex];
-    if (enteredForThisCell != null) {
-      cell.enteredChar = enteredForThisCell;
-      if (cell.isCurrentCharCorrect) {
-        cell.displayColor = _correctCellColor;
-      } else if (cell.enteredChar.isNotEmpty) {
-        cell.displayColor = _errorCellColor;
-      } else {
-        cell.displayColor = _initialCellColor;
-      }
-    }
-  }
-  
-  _savePuzzleProgress();
-},
+          onSubmitOrDismiss: (Map<int, String> enteredCharsMap) {
+            Navigator.of(context).pop();
+            for (final cell in cellsToAnimate) {
+              String? enteredForThisCell = enteredCharsMap[cell.animationIndex];
+              if (enteredForThisCell != null) {
+                cell.enteredChar = enteredForThisCell;
+                if (cell.isCurrentCharCorrect) {
+                  cell.displayColor = _correctCellColor;
+                } else if (cell.enteredChar.isNotEmpty) {
+                  cell.displayColor = _errorCellColor;
+                } else {
+                  cell.displayColor = _initialCellColor;
+                }
+              }
+            }
+
+            _savePuzzleProgress();
+          },
         );
       },
     ).then((_) {
+      // Restore original colors before showing popup
+      if (originalColors.isNotEmpty) {
+        for (final cell in cellsToAnimate) {
+          if (originalColors.containsKey(cell)) {
+            if (cell.displayColor == _selectionCellColor) {
+              cell.displayColor = originalColors[cell]!;
+            }
+          }
+        }
+        // Update the UI with restored colors
+        setState(() {});
+      }
+
+      // Clear the map after popup is closed
+      originalColors.clear();
+
       animationController.reverse().whenComplete(() {
         // Use whenComplete for safety
         if (mounted) {
@@ -419,6 +435,8 @@ onSubmitOrDismiss: (Map<int, String> enteredCharsMap) {
 
     if (activeClue != null && activeBlockIndexInClue != null) {
       cellsToAnimate.clear();
+      originalColors.clear(); // Clear previous original colors
+
       Point<int> startCoord =
           activeClue!.blockStartCoords[activeBlockIndexInClue!];
       int length = activeClue!.blockLengths[activeBlockIndexInClue!];
@@ -429,6 +447,10 @@ onSubmitOrDismiss: (Map<int, String> enteredCharsMap) {
           CellModel cell =
               gridCellData[startCoord.x.toInt()][startCoord.y.toInt() + i];
           physicalOrderCells.add(cell);
+
+          // Store original color and change to selection color
+          originalColors[cell] = cell.displayColor;
+          cell.displayColor = _selectionCellColor;
         }
 
         final bool isAppRTL =
@@ -450,6 +472,11 @@ onSubmitOrDismiss: (Map<int, String> enteredCharsMap) {
         for (int i = 0; i < length; i++) {
           CellModel cellInWord =
               gridCellData[startCoord.x.toInt() + i][startCoord.y.toInt()];
+
+          // Store original color and change to selection color
+          originalColors[cellInWord] = cellInWord.displayColor;
+          cellInWord.displayColor = _selectionCellColor;
+
           final rect = _getCellRect(cellInWord.row, cellInWord.col);
           if (rect != null) {
             cellInWord.originalRect = rect;
@@ -459,8 +486,16 @@ onSubmitOrDismiss: (Map<int, String> enteredCharsMap) {
         }
       }
 
+      // Force a rebuild to show yellow cells
+      setState(() {});
+
       if (cellsToAnimate.isNotEmpty) {
-        _showAnimatedPopup();
+        // Show animated popup after a brief delay to let user see yellow highlighting
+        Future.delayed(const Duration(milliseconds: 300), () {
+          if (mounted) {
+            _showAnimatedPopup();
+          }
+        });
       }
     }
   }
@@ -536,12 +571,138 @@ onSubmitOrDismiss: (Map<int, String> enteredCharsMap) {
     }
     final bool isRtl = Localizations.localeOf(context).languageCode == 'ar';
 
+    // --- Configuration for Headers and Grid ---
+    final double rowHeaderWidth = 30.0; // Width of the column for row numbers
+    final double gridMarginAllSides = 8.0; // Margin of the grid container
+    final double gridBorderWidthAllSides =
+        2.0; // Border width of the grid container
+    final double headerSpacing =
+        4.0; // Space between column headers and the grid/row-headers block
+
+    // --- Helper Widget for Column Numbers ---
+    Widget _buildColumnHeaders() {
+      return Padding(
+        // This inner padding aligns numbers with grid cells, accounting for the grid's border.
+        // The outer alignment (with grid's margin) is handled by the parent Container of this widget.
+        padding: EdgeInsets.symmetric(horizontal: gridBorderWidthAllSides),
+        child: Row(
+          children: List.generate(gridSize, (index) {
+            final columnNumber = index + 1; // Numbers are always 1, 2, 3...
+            return Expanded(
+              child: Center(
+                child: Text(
+                  '$columnNumber',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.grey.shade700, // Or Theme.of(context)...
+                  ),
+                ),
+              ),
+            );
+          }),
+        ),
+      );
+    }
+
+    // --- Helper Widget for Row Numbers ---
+    Widget _buildRowHeaders() {
+      return Container(
+        width: rowHeaderWidth,
+        // Vertical padding to align numbers top/bottom with grid cells,
+        // accounting for the grid container's outer margin and border.
+        padding: EdgeInsets.symmetric(
+          vertical: gridMarginAllSides + gridBorderWidthAllSides,
+        ),
+        child: Column(
+          // mainAxisAlignment: MainAxisAlignment.spaceAround, // Distributes space
+          children: List.generate(gridSize, (index) {
+            final rowNumber = index + 1;
+            return Expanded(
+              // Each number takes equal vertical space
+              child: Center(
+                child: Text(
+                  '$rowNumber',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.grey.shade700, // Or Theme.of(context)...
+                  ),
+                ),
+              ),
+            );
+          }),
+        ),
+      );
+    }
+
+    // --- The main Grid Widget itself ---
+    Widget actualGridWidget = Center(
+      child: AspectRatio(
+        aspectRatio: 1.0,
+        child: Container(
+          margin: EdgeInsets.all(gridMarginAllSides),
+          decoration: BoxDecoration(
+            border: Border.all(
+              color: Colors.grey.shade700,
+              width: gridBorderWidthAllSides,
+            ),
+            color: Colors.grey.shade300,
+          ),
+          child: GridView.builder(
+            physics: const NeverScrollableScrollPhysics(),
+            itemCount: gridSize * gridSize,
+            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: gridSize,
+              mainAxisSpacing: 1.5,
+              crossAxisSpacing: 1.5,
+            ),
+            itemBuilder: (context, index) {
+              final row = index ~/ gridSize;
+              // This 'col' is for data access and respects RTL for data mapping
+              final col =
+                  isRtl ? gridSize - 1 - (index % gridSize) : index % gridSize;
+
+              final cell = gridCellData[row][col];
+
+              return GestureDetector(
+                key: gridKeys[row][col],
+                onPanStart: (details) => _onPanStart(details, row, col),
+                onPanUpdate: (details) => _onPanUpdate(details),
+                onPanEnd: _onPanEnd,
+                child: Container(
+                  decoration: BoxDecoration(color: cell.displayColor),
+                  alignment: Alignment.center,
+                  child: Stack(
+                    children: [
+                      if (!cell.isBlackSquare)
+                        Center(
+                          child: Text(
+                            cell.enteredChar,
+                            textDirection:
+                                TextDirection.rtl, // Character itself is RTL
+                            style: TextStyle(
+                              color: _getContrastColor(cell.displayColor),
+                              fontSize: gridSize > 15 ? 12 : 16,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+      ),
+    );
+
     return Scaffold(
       appBar: AppBar(
         centerTitle: true,
         automaticallyImplyLeading: false,
         toolbarHeight: 120,
-
         title: Text(
           'لغز رقم ${widget.puzzleNumber}',
           textAlign: TextAlign.center,
@@ -551,69 +712,39 @@ onSubmitOrDismiss: (Map<int, String> enteredCharsMap) {
           ),
         ),
       ),
-      body: Center(
-        child: AspectRatio(
-          aspectRatio: 1.0,
-          child: Container(
-            margin: const EdgeInsets.all(8.0),
-            decoration: BoxDecoration(
-              border: Border.all(color: Colors.grey.shade700, width: 2),
-              color: Colors.grey.shade300,
-            ),
-            child: GridView.builder(
-              physics: const NeverScrollableScrollPhysics(),
-              itemCount: gridSize * gridSize,
-              gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: gridSize,
-                mainAxisSpacing: 1.5,
-                crossAxisSpacing: 1.5,
-              ),
-              itemBuilder: (context, index) {
-                final row = index ~/ gridSize;
-                final col =
-                    isRtl
-                        ? gridSize - 1 - (index % gridSize)
-                        : index % gridSize;
-
-                final cell = gridCellData[row][col];
-
-                Color cellEffectiveColor = cell.displayColor;
-                if (!cell.isBlackSquare &&
-                    cell.enteredChar.isEmpty &&
-                    _colorsInitialized) {
-                  cellEffectiveColor = _initialCellColor;
-                } else if (cell.isBlackSquare) {
-                  cellEffectiveColor = Colors.black;
-                }
-
-                return GestureDetector(
-                  key: gridKeys[row][col],
-                  onPanStart: (details) => _onPanStart(details, row, col),
-                  onPanUpdate: (details) => _onPanUpdate(details),
-                  onPanEnd: _onPanEnd,
-                  child: Container(
-                    decoration: BoxDecoration(color: cellEffectiveColor),
-                    alignment: Alignment.center,
-                    child: Stack(
-                      children: [
-                        if (!cell.isBlackSquare)
-                          Center(
-                            child: Text(
-                              cell.enteredChar,
-                              textDirection: TextDirection.rtl,
-                              style: TextStyle(
-                                color: _getContrastColor(cellEffectiveColor),
-                                fontSize: gridSize > 15 ? 12 : 16,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ),
-                      ],
+      body: SingleChildScrollView(
+        child: Padding(
+          padding: const EdgeInsets.all(8.0),
+          child: Column(
+            children: [
+              SizedBox(height: 40),
+              Row(
+                children: <Widget>[
+                  if (isRtl) SizedBox(width: rowHeaderWidth),
+                  Expanded(
+                    child: Container(
+                      margin: EdgeInsets.symmetric(
+                        horizontal: gridMarginAllSides,
+                      ),
+                      child: _buildColumnHeaders(),
                     ),
                   ),
-                );
-              },
-            ),
+                  if (!isRtl) SizedBox(width: rowHeaderWidth),
+                ],
+              ),
+
+              SizedBox(height: headerSpacing),
+
+              IntrinsicHeight(
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: <Widget>[
+                    _buildRowHeaders(),
+                    Expanded(child: actualGridWidget),
+                  ],
+                ),
+              ),
+            ],
           ),
         ),
       ),

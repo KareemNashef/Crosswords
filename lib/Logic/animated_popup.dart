@@ -86,28 +86,30 @@ class AnimatedPopupState extends State<AnimatedPopup> {
     }
   }
 
-// Animation listener - Fixed version
-void _onAnimationStatusChanged(AnimationStatus status) {
-  if (status == AnimationStatus.completed) {
-    // Add a small delay to ensure the TextField widgets are properly built
-    Future.delayed(const Duration(milliseconds: 50), () {
-      if (mounted && _cellFocusNodes.isNotEmpty) {
-        int focusIdx = _currentEnteredChars.indexWhere((char) => char.isEmpty);
-        if (focusIdx == -1) {
-          focusIdx = 0;
-        }
-
-        if (focusIdx >= 0 && focusIdx < _cellFocusNodes.length) {
-          FocusScope.of(context).requestFocus(_cellFocusNodes[focusIdx]);
-          _cellTextControllers[focusIdx].selection = TextSelection(
-            baseOffset: 0,
-            extentOffset: _cellTextControllers[focusIdx].text.length,
+  // Animation listener - Fixed version
+  void _onAnimationStatusChanged(AnimationStatus status) {
+    if (status == AnimationStatus.completed) {
+      // Add a small delay to ensure the TextField widgets are properly built
+      Future.delayed(const Duration(milliseconds: 50), () {
+        if (mounted && _cellFocusNodes.isNotEmpty) {
+          int focusIdx = _currentEnteredChars.indexWhere(
+            (char) => char.isEmpty,
           );
+          if (focusIdx == -1) {
+            focusIdx = 0;
+          }
+
+          if (focusIdx >= 0 && focusIdx < _cellFocusNodes.length) {
+            FocusScope.of(context).requestFocus(_cellFocusNodes[focusIdx]);
+            _cellTextControllers[focusIdx].selection = TextSelection(
+              baseOffset: 0,
+              extentOffset: _cellTextControllers[focusIdx].text.length,
+            );
+          }
         }
-      }
-    });
+      });
+    }
   }
-}
 
   // Text controller listener
   void _onCellTextChanged(int index) {
@@ -144,8 +146,6 @@ void _onAnimationStatusChanged(AnimationStatus status) {
         );
       }
     }
-
-
   }
 
   // Dispose
@@ -203,7 +203,7 @@ void _onAnimationStatusChanged(AnimationStatus status) {
 
     final Animation<double> blurAnimation = Tween<double>(
       begin: 0.0,
-      end: 5.0,
+      end: 3.5,
     ).animate(
       CurvedAnimation(
         parent: widget.animationController,
@@ -238,7 +238,7 @@ void _onAnimationStatusChanged(AnimationStatus status) {
                     ),
                     child: Container(
                       color: Colors.black.withOpacity(
-                        0.4 * widget.animationController.value,
+                        0.3 * widget.animationController.value,
                       ),
                     ),
                   ),
