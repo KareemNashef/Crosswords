@@ -2,22 +2,35 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:flutter/services.dart';
 
 // Local imports
 import 'package:crosswords/main_page.dart';
 import 'package:crosswords/providors.dart';
 
-void main() {
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+
+  final themeProvider = ThemeProvider();
+  await themeProvider.loadFromPrefs();
+
+  SystemChrome.setSystemUIOverlayStyle(
+    SystemUiOverlayStyle(
+      systemNavigationBarColor: Colors.black,
+      systemNavigationBarIconBrightness: Brightness.light,
+    ),
+  );
+
   runApp(
     MultiProvider(
-      // Providers
-      providers: [ChangeNotifierProvider(create: (_) => ThemeProvider())],
-
-      // Main app
+      providers: [
+        ChangeNotifierProvider.value(value: themeProvider),
+      ],
       child: MainApp(),
     ),
   );
 }
+
 
 // ========== Main app ========== //
 

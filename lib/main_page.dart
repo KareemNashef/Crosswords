@@ -1,6 +1,6 @@
 // Flutter imports
 import 'dart:convert';
-
+import 'package:flutter/services.dart' show rootBundle;
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -34,7 +34,6 @@ class MainPageState extends State<MainPage> with TickerProviderStateMixin {
 
           return OutlinedButton(
             style: OutlinedButton.styleFrom(
-              fixedSize: const Size(350, 50),
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(12),
               ),
@@ -54,31 +53,36 @@ class MainPageState extends State<MainPage> with TickerProviderStateMixin {
       );
     }
 
-    return Column(
-      children: [
-        puzzleBar(context, "4404"),
-        SizedBox(height: 16),
-        puzzleBar(context, "4410"),
-        SizedBox(height: 16),
-        puzzleBar(context, "4416"),
-        SizedBox(height: 16),
-        puzzleBar(context, "4422"),
-        SizedBox(height: 16),
-        puzzleBar(context, "4426"),
-        SizedBox(height: 16),
-        puzzleBar(context, "4433"),
-        SizedBox(height: 16),
-        puzzleBar(context, "4440"),
-        SizedBox(height: 16),
-        puzzleBar(context, "4444"),
-        SizedBox(height: 16),
-        puzzleBar(context, "4448"),
-        SizedBox(height: 16),
-        puzzleBar(context, "4455"),
-        SizedBox(height: 16),
-      ],
+return FutureBuilder<List<String>>(
+  future: _loadPuzzleNumbers(),
+  builder: (context, snapshot) {
+    if (!snapshot.hasData) return CircularProgressIndicator();
+    final puzzles = snapshot.data!;
+    return GridView.count(
+      crossAxisCount: 3,
+      shrinkWrap: false,
+      physics: ScrollPhysics(),
+      mainAxisSpacing: 16,
+      crossAxisSpacing: 16,
+      childAspectRatio: 1,
+      children: puzzles.map((p) => puzzleBar(context, p)).toList(),
     );
+  },
+);
   }
+
+// Load puzzle numbers
+Future<List<String>> _loadPuzzleNumbers() async {
+  final manifest = await rootBundle.loadString('AssetManifest.json');
+  final Map<String, dynamic> manifestMap = json.decode(manifest);
+  final puzzleFiles = manifestMap.keys
+      .where((path) => path.startsWith('assets/Puzzles/puzzle_') && path.endsWith('_clues.json'))
+      .toList();
+
+  return puzzleFiles
+      .map((path) => path.split('_')[1])
+      .toList();
+}
 
   // Check if there is saved progress
   Future<String?> _getPuzzleProgress(String puzzleNumber) async {

@@ -37,6 +37,7 @@ class GameGridState extends State<GameGrid> with TickerProviderStateMixin {
   Clue? activeClue;
   int? activeBlockIndexInClue;
   String? activeDirection;
+  bool isPuzzleSolved = false;
 
   // Grid variables
   List<CellModel> cellsToAnimate = [];
@@ -67,7 +68,7 @@ class GameGridState extends State<GameGrid> with TickerProviderStateMixin {
     super.initState();
     animationController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 600),
+      duration: const Duration(milliseconds: 100),
     );
     _loadPuzzleData();
   }
@@ -277,18 +278,79 @@ class GameGridState extends State<GameGrid> with TickerProviderStateMixin {
     for (int r = 0; r < gridSize; r++) {
       for (int c = 0; c < gridSize; c++) {
         final cell = gridCellData[r][c];
-        if (cell.isBlackSquare || cell.enteredChar.isNotEmpty) {
+        if (cell.isBlackSquare || cell.isCurrentCharCorrect) {
           progress += 1;
         }
       }
     }
+
+    // Update progress
     progressData['progress'] =
         progress == gridSize * gridSize ? "Done" : "In Progress";
+
+    // Check if done
+    if (progress == gridSize * gridSize) {
+      showLevelCompleteDialog(context);
+
+      setState(() {
+        isPuzzleSolved = true;
+      });
+    }
 
     // Save as JSON
     await prefs.setString(
       'puzzle_progress_${widget.puzzleNumber}',
       jsonEncode(progressData),
+    );
+  }
+
+  void showLevelCompleteDialog(BuildContext context) {
+    showGeneralDialog(
+      context: context,
+      barrierDismissible: true, // Allow closing by tapping outside
+      barrierColor: Colors.black54,
+      barrierLabel: "Dismiss Dialog", // Set barrierLabel
+      transitionDuration: Duration(milliseconds: 300),
+      pageBuilder: (_, __, ___) => Center(),
+      transitionBuilder: (_, anim, __, ___) {
+        return Transform.scale(
+          scale: anim.value,
+          child: AlertDialog(
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+            ),
+            backgroundColor: Color(0xFF2A2A2A),
+            contentPadding: EdgeInsets.all(24),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.star, size: 100, color: Colors.amber),
+                SizedBox(height: 20),
+                Text(
+                  "لقد أكملت المستوى بنجاح!",
+                  style: TextStyle(
+                    fontSize: 20,
+                    color: Colors.white,
+                    fontFamily: 'Cairo',
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+                SizedBox(height: 20),
+                Text(
+                  "مبروك! استمتع بمستوى جديد!",
+                  style: TextStyle(
+                    fontSize: 16,
+                    color: Colors.white70,
+                    fontFamily: 'Cairo',
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+                SizedBox(height: 20),
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 
@@ -302,6 +364,10 @@ class GameGridState extends State<GameGrid> with TickerProviderStateMixin {
     if (savedProgressJson != null) {
       try {
         final Map<String, dynamic> progressData = jsonDecode(savedProgressJson);
+
+        if (progressData['progress'] == "Done") {
+          isPuzzleSolved = true;
+        }
 
         // Apply saved characters to the grid
         progressData.forEach((key, value) {
@@ -559,6 +625,34 @@ class GameGridState extends State<GameGrid> with TickerProviderStateMixin {
     super.dispose();
   }
 
+  // Reset the game state
+  Future<void> _resetPuzzle() async {
+    // Clear saved progress
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove('puzzle_progress_${widget.puzzleNumber}');
+
+    // Reset game variables
+    setState(() {
+      isPuzzleSolved = false;
+      activeClue = null;
+      activeBlockIndexInClue = null;
+      activeDirection = null;
+      cellsToAnimate.clear();
+      originalColors.clear();
+    });
+
+    // Reload the puzzle data to get a fresh grid
+    await _loadPuzzleData();
+
+    // Reapply initial colors to the grid
+    _reapplyInitialColors();
+
+    // Force a rebuild of the UI
+    if (mounted) {
+      setState(() {});
+    }
+  }
+
   // ===== Build method ===== //
 
   @override
@@ -595,7 +689,10 @@ class GameGridState extends State<GameGrid> with TickerProviderStateMixin {
                   style: TextStyle(
                     fontSize: 12,
                     fontWeight: FontWeight.bold,
-                    color: Colors.grey.shade700, // Or Theme.of(context)...
+                    color:
+                        Theme.of(
+                          context,
+                        ).colorScheme.primary, // Or Theme.of(context)...
                   ),
                 ),
               ),
@@ -626,7 +723,10 @@ class GameGridState extends State<GameGrid> with TickerProviderStateMixin {
                   style: TextStyle(
                     fontSize: 12,
                     fontWeight: FontWeight.bold,
-                    color: Colors.grey.shade700, // Or Theme.of(context)...
+                    color:
+                        Theme.of(
+                          context,
+                        ).colorScheme.primary, // Or Theme.of(context)...
                   ),
                 ),
               ),
@@ -644,10 +744,10 @@ class GameGridState extends State<GameGrid> with TickerProviderStateMixin {
           margin: EdgeInsets.all(gridMarginAllSides),
           decoration: BoxDecoration(
             border: Border.all(
-              color: Colors.grey.shade700,
+              color: Theme.of(context).colorScheme.outline,
               width: gridBorderWidthAllSides,
             ),
-            color: Colors.grey.shade300,
+            color: Theme.of(context).colorScheme.outline,
           ),
           child: GridView.builder(
             physics: const NeverScrollableScrollPhysics(),
@@ -683,7 +783,7 @@ class GameGridState extends State<GameGrid> with TickerProviderStateMixin {
                                 TextDirection.rtl, // Character itself is RTL
                             style: TextStyle(
                               color: _getContrastColor(cell.displayColor),
-                              fontSize: gridSize > 15 ? 12 : 16,
+                              fontSize: 14,
                               fontWeight: FontWeight.bold,
                             ),
                           ),
@@ -744,6 +844,41 @@ class GameGridState extends State<GameGrid> with TickerProviderStateMixin {
                   ],
                 ),
               ),
+
+              const SizedBox(height: 20),
+              if (isPuzzleSolved)
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.amber,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    padding: EdgeInsets.symmetric(vertical: 12, horizontal: 24),
+                  ),
+                  onPressed: () => Navigator.pop(context),
+                  child: Text(
+                    "الرجوع إلى الصفحة الرئيسية",
+                    style: TextStyle(fontSize: 16, color: Colors.black),
+                  ),
+                ),
+
+              const SizedBox(height: 20),
+              if (isPuzzleSolved)
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.amber,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    padding: EdgeInsets.symmetric(vertical: 12, horizontal: 24),
+                  ),
+                  onPressed: () => _resetPuzzle(),
+                  child: Text(
+                    "اللعب من جديد",
+                    style: TextStyle(fontSize: 16, color: Colors.black),
+                  ),
+                ),
+
             ],
           ),
         ),
