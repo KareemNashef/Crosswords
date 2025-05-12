@@ -224,7 +224,7 @@ class AnimatedPopupState extends State<AnimatedPopup> {
               cellSpacing;
           final startX = centerX - totalAnimatedCellsWidth / 2;
 
-          final double clueTextTop = centerY - cellSize - 80;
+          final double clueTextTop = centerY / 2.5;
 
           return Stack(
             children: [
@@ -245,6 +245,7 @@ class AnimatedPopupState extends State<AnimatedPopup> {
                 ),
               ),
               Positioned(
+
                 // Clue Text
                 top: clueTextTop,
                 left: 20,
@@ -252,23 +253,33 @@ class AnimatedPopupState extends State<AnimatedPopup> {
                 child: Opacity(
                   opacity: widget.animationController.value,
                   child: Material(
-                    color: Colors.transparent,
-                    child: Text(
-                      widget.clueText,
-                      textAlign: TextAlign.center,
-                      textDirection: TextDirection.rtl,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                        shadows: [
-                          Shadow(
-                            blurRadius: 2.0,
-                            color: Colors.black54,
-                            offset: Offset(0, 1),
+                    color: Theme.of(context).colorScheme.secondaryContainer,
+                    borderRadius: BorderRadius.circular(12),
+                    
+                    child: Column(
+                      children: [
+                        SizedBox(height: 8),
+                        
+                        Text(
+                          widget.clueText,
+                          textAlign: TextAlign.center,
+                          textDirection: TextDirection.rtl,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                            shadows: [
+                              Shadow(
+                                blurRadius: 2.0,
+                                color: Colors.black54,
+                                offset: Offset(0, 1),
+                              ),
+                            ],
                           ),
-                        ],
-                      ),
+                        ),
+
+                        SizedBox(height: 8),
+                      ],
                     ),
                   ),
                 ),
@@ -292,7 +303,7 @@ class AnimatedPopupState extends State<AnimatedPopup> {
                 }
                 final targetPosition = Offset(
                   targetX,
-                  centerY - (cellSize / 2) + 10,
+                  centerY / 1.2,
                 );
 
                 final currentPosition =
@@ -312,6 +323,10 @@ class AnimatedPopupState extends State<AnimatedPopup> {
                       width: originalRect.width,
                       height: originalRect.height,
                       decoration: BoxDecoration(
+                        border: Border.all(
+                          width: 1,
+                          color: Theme.of(context).colorScheme.outline,
+                        ),
                         color: _currentCellColors[index],
                         borderRadius: BorderRadius.circular(3),
                         boxShadow: [
@@ -344,59 +359,73 @@ class AnimatedPopupState extends State<AnimatedPopup> {
                               )
                               : Material(
                                 type: MaterialType.transparency,
-                                child: SizedBox(
-                                  width: cellSize * 0.9,
-                                  height: cellSize * 0.9,
-                                  child: TextField(
-                                    controller: _cellTextControllers[index],
-                                    focusNode: _cellFocusNodes[index],
-                                    textAlign: TextAlign.center,
-                                    textDirection: TextDirection.rtl,
-                                    maxLength: 1,
-                                    style: TextStyle(
-                                      color: _getContrastColor(
-                                        _currentCellColors[index],
-                                      ),
-                                      fontSize: (cellSize * 0.6).clamp(
-                                        12.0,
-                                        22.0,
-                                      ),
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                                    decoration: const InputDecoration(
-                                      border: InputBorder.none,
-                                      counterText: "",
-                                      contentPadding: EdgeInsets.all(0),
-                                      isDense: true,
-                                    ),
-                                    cursorColor: _getContrastColor(
-                                      _currentCellColors[index],
-                                    ),
-                                    textInputAction:
-                                        (index ==
-                                                widget.cellsToAnimate.length -
-                                                    1)
-                                            ? TextInputAction.done
-                                            : TextInputAction.next,
-                                    onSubmitted: (_) {
-                                      if (index <
-                                          _cellTextControllers.length - 1) {
-                                        FocusScope.of(context).requestFocus(
-                                          _cellFocusNodes[index + 1],
-                                        );
-                                        _cellTextControllers[index + 1]
-                                            .selection = TextSelection(
-                                          baseOffset: 0,
-                                          extentOffset:
+                                child: LayoutBuilder(
+                                  builder: (context, constraints) {
+                                    double fontSize = (constraints.maxWidth *
+                                            0.6)
+                                        .clamp(12.0, 50.0);
+                                    return SizedBox(
+                                      width: cellSize * 0.9,
+                                      height: cellSize * 0.9,
+                                      child: Center(
+                                        // Center the TextField vertically and horizontally
+                                        child: TextField(
+                                          controller:
+                                              _cellTextControllers[index],
+                                          focusNode: _cellFocusNodes[index],
+                                          textAlign: TextAlign.center,
+                                          textDirection: TextDirection.rtl,
+                                          maxLength: 1,
+                                          style: TextStyle(
+                                            color: _getContrastColor(
+                                              _currentCellColors[index],
+                                            ),
+                                            fontSize: fontSize,
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                          decoration: const InputDecoration(
+                                            border: InputBorder.none,
+                                            counterText: "",
+                                            contentPadding: EdgeInsets.all(0),
+                                            isDense: true,
+                                          ),
+                                          cursorColor: _getContrastColor(
+                                            _currentCellColors[index],
+                                          ),
+                                          textInputAction:
+                                              (index ==
+                                                      widget
+                                                              .cellsToAnimate
+                                                              .length -
+                                                          1)
+                                                  ? TextInputAction.done
+                                                  : TextInputAction.next,
+                                          onSubmitted: (_) {
+                                            if (index <
+                                                _cellTextControllers.length -
+                                                    1) {
+                                              FocusScope.of(
+                                                context,
+                                              ).requestFocus(
+                                                _cellFocusNodes[index + 1],
+                                              );
                                               _cellTextControllers[index + 1]
-                                                  .text
-                                                  .length,
-                                        );
-                                      } else {
-                                        _handleDismissOrSubmit();
-                                      }
-                                    },
-                                  ),
+                                                  .selection = TextSelection(
+                                                baseOffset: 0,
+                                                extentOffset:
+                                                    _cellTextControllers[index +
+                                                            1]
+                                                        .text
+                                                        .length,
+                                              );
+                                            } else {
+                                              _handleDismissOrSubmit();
+                                            }
+                                          },
+                                        ),
+                                      ),
+                                    );
+                                  },
                                 ),
                               ),
                     ),

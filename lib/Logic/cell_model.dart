@@ -22,6 +22,7 @@ class CellModel {
   int? downBlockIndex;
   Rect originalRect = Rect.zero;
   int animationIndex = 0;
+String madeBy = '';
 
   // ===== Class methods ===== //
 
@@ -37,7 +38,13 @@ class CellModel {
     this.acrossBlockIndex,
     this.downClue,
     this.downBlockIndex,
+        this.madeBy = '', 
   });
+
+  void updateCell(String char, String player) {
+    enteredChar = char;
+    madeBy = player;
+  }
 
   // Check if current entered char is correct
   bool get isCurrentCharCorrect =>

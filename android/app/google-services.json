@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "918058744405",
+    "project_id": "crosswords-c53ab",
+    "storage_bucket": "crosswords-c53ab.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:918058744405:android:bed671d121dc90728072dc",
+        "android_client_info": {
+          "package_name": "com.nunya.crosswords"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDzXHQQV2WXuLLCsoQ6QxlTqoQ6h1us3IE"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

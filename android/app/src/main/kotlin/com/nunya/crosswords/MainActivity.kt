@@ -1,4 +1,4 @@
-package com.example.crosswords
+package com.nunya.crosswords
 
 import io.flutter.embedding.android.FlutterActivity
 

@@ -150,17 +150,8 @@ class ThemeSettingsPage extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Row(
-          children: [
-            Text("Theme"),
-            Spacer(),
-            Icon(
-              Icons.format_paint,
-              size: 32,
-              color: Theme.of(context).colorScheme.primary,
-            ),
-          ],
-        ),
+        automaticallyImplyLeading: false,
+        
       ),
       body: SingleChildScrollView(
         child: Column(

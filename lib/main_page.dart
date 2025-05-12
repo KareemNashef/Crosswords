@@ -1,12 +1,16 @@
 // Flutter imports
 import 'dart:convert';
+import 'package:crosswords/Settings/group.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 // Local imports
 import 'package:crosswords/Logic/game_grid.dart';
-import 'package:crosswords/themes.dart';
+import 'package:crosswords/Settings/themes.dart';
+import 'package:crosswords/Settings/group.dart';
+
+// ========== Main Page ========== //
 
 class MainPage extends StatefulWidget {
   const MainPage({super.key});
@@ -16,6 +20,8 @@ class MainPage extends StatefulWidget {
 }
 
 class MainPageState extends State<MainPage> with TickerProviderStateMixin {
+  // ===== Class widgets ===== //
+
   // App color selection bar
   Widget puzzleSelectionBar(context) {
     Widget puzzleBar(BuildContext context, String puzzleNumber) {
@@ -53,36 +59,39 @@ class MainPageState extends State<MainPage> with TickerProviderStateMixin {
       );
     }
 
-return FutureBuilder<List<String>>(
-  future: _loadPuzzleNumbers(),
-  builder: (context, snapshot) {
-    if (!snapshot.hasData) return CircularProgressIndicator();
-    final puzzles = snapshot.data!;
-    return GridView.count(
-      crossAxisCount: 3,
-      shrinkWrap: false,
-      physics: ScrollPhysics(),
-      mainAxisSpacing: 16,
-      crossAxisSpacing: 16,
-      childAspectRatio: 1,
-      children: puzzles.map((p) => puzzleBar(context, p)).toList(),
+    return FutureBuilder<List<String>>(
+      future: _loadPuzzleNumbers(),
+      builder: (context, snapshot) {
+        if (!snapshot.hasData) return CircularProgressIndicator();
+        final puzzles = snapshot.data!;
+        return GridView.count(
+          crossAxisCount: 3,
+          shrinkWrap: false,
+          physics: ScrollPhysics(),
+          mainAxisSpacing: 16,
+          crossAxisSpacing: 16,
+          childAspectRatio: 1,
+          children: puzzles.map((p) => puzzleBar(context, p)).toList(),
+        );
+      },
     );
-  },
-);
   }
 
-// Load puzzle numbers
-Future<List<String>> _loadPuzzleNumbers() async {
-  final manifest = await rootBundle.loadString('AssetManifest.json');
-  final Map<String, dynamic> manifestMap = json.decode(manifest);
-  final puzzleFiles = manifestMap.keys
-      .where((path) => path.startsWith('assets/Puzzles/puzzle_') && path.endsWith('_clues.json'))
-      .toList();
+  // Load puzzle numbers
+  Future<List<String>> _loadPuzzleNumbers() async {
+    final manifest = await rootBundle.loadString('AssetManifest.json');
+    final Map<String, dynamic> manifestMap = json.decode(manifest);
+    final puzzleFiles =
+        manifestMap.keys
+            .where(
+              (path) =>
+                  path.startsWith('assets/Puzzles/puzzle_') &&
+                  path.endsWith('_clues.json'),
+            )
+            .toList();
 
-  return puzzleFiles
-      .map((path) => path.split('_')[1])
-      .toList();
-}
+    return puzzleFiles.map((path) => path.split('_')[1]).toList();
+  }
 
   // Check if there is saved progress
   Future<String?> _getPuzzleProgress(String puzzleNumber) async {
@@ -95,6 +104,8 @@ Future<List<String>> _loadPuzzleNumbers() async {
     return null;
   }
 
+  // ===== Build method ===== //
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -102,6 +113,7 @@ Future<List<String>> _loadPuzzleNumbers() async {
         // Set the height
         toolbarHeight: 120,
         title: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceAround,
           children: [
             // Settings button
             ElevatedButton(
@@ -118,12 +130,12 @@ Future<List<String>> _loadPuzzleNumbers() async {
                 );
               },
               child: Icon(
-                Icons.settings,
+                Icons.format_paint,
                 color: Theme.of(context).colorScheme.primary,
                 size: 32,
               ),
             ),
-            SizedBox(width: 44),
+
             // Title
             Text(
               "كلمات متقاطعة",
@@ -131,6 +143,27 @@ Future<List<String>> _loadPuzzleNumbers() async {
               style: TextStyle(
                 color: Theme.of(context).colorScheme.primary,
                 fontWeight: FontWeight.bold,
+              ),
+            ),
+
+            // Profile button
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                shape: const CircleBorder(),
+                padding: const EdgeInsets.all(12),
+              ),
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => const GroupSettingsPage(),
+                  ),
+                );
+              },
+              child: Icon(
+                Icons.person,
+                color: Theme.of(context).colorScheme.primary,
+                size: 32,
               ),
             ),
           ],
