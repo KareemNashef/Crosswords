@@ -23,6 +23,7 @@ class ThemeProvider with ChangeNotifier {
     _mainColor = color;
     notifyListeners();
     final prefs = await SharedPreferences.getInstance();
+    // ignore: deprecated_member_use
     await prefs.setInt('mainColor', color.value);
   }
 

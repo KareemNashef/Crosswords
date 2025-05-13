@@ -15,9 +15,7 @@ void main() async {
   await Firebase.initializeApp();
 
 Firebase.initializeApp().then((value) {
-  print("Firebase Initialized Successfully");
 }).catchError((error) {
-  print("Error initializing Firebase: $error");
 });
 
   final themeProvider = ThemeProvider();

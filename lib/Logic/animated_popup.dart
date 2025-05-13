@@ -1,10 +1,11 @@
 // Flutter imports
 import 'package:flutter/material.dart';
 import 'dart:ui';
-import 'package:flutter/services.dart';
+import 'package:crosswords/Settings/firebase_service.dart';
 
 // Local imports
 import 'package:crosswords/Logic/cell_model.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 // ========== Animated Popup ========== //
 
@@ -50,12 +51,16 @@ class AnimatedPopupState extends State<AnimatedPopup> {
   // Controllers
   late List<TextEditingController> _cellTextControllers;
 
+  // Firebase service
+  late final FirebaseService _firebaseService;
+  Map<String, String> _userColors = {};
+
   // ===== Class methods ===== //
 
-  // Initialization
   @override
   void initState() {
     super.initState();
+    _firebaseService = FirebaseService();
 
     _cellTextControllers = List.generate(
       widget.cellsToAnimate.length,
@@ -69,20 +74,65 @@ class AnimatedPopupState extends State<AnimatedPopup> {
 
     _currentEnteredChars =
         widget.cellsToAnimate.map((c) => c.enteredChar).toList();
-    _currentCellColors =
-        widget.cellsToAnimate.map((c) {
-          if (c.enteredChar.isEmpty) return widget.initialCellColor;
-          return c.enteredChar == c.solutionChar
-              ? widget.correctCellColor
-              : widget.errorCellColor;
-        }).toList();
 
-    // Add listener to focus on the first editable cell when animation is done
     widget.animationController.addStatusListener(_onAnimationStatusChanged);
-
-    // Listeners for each text controller for real-time updates and focus shift
     for (int i = 0; i < _cellTextControllers.length; i++) {
       _cellTextControllers[i].addListener(() => _onCellTextChanged(i));
+    }
+    _currentCellColors = List.filled(
+      widget.cellsToAnimate.length,
+      widget.initialCellColor,
+    );
+    _loadUserColorsAndSetCellColors();
+  }
+
+  void _loadUserColorsAndSetCellColors() async {
+    final prefs = await SharedPreferences.getInstance();
+    final groupName = prefs.getString('groupName');
+
+    if (groupName != null) {
+      final users = await _firebaseService.getGroupUsers(groupName);
+      _userColors = Map<String, String>.fromEntries(
+        users.entries.map((e) => MapEntry(e.key, e.value.toString())),
+      );
+    }
+
+    setState(() {
+      _currentCellColors =
+          widget.cellsToAnimate.map((c) {
+            if (c.enteredChar.isEmpty) return widget.initialCellColor;
+
+            final madeBy = c.madeBy?.trim() ?? '';
+            final colorHex = _userColors[madeBy];
+
+            if (madeBy.isEmpty || _userColors.isEmpty || colorHex == null) {
+              return widget.correctCellColor;
+            }
+
+            return Color(int.parse(colorHex.replaceFirst('#', '0xff')));
+          }).toList();
+    });
+  }
+
+  // Group colors
+  Future<void> _groupColors() async {
+    final prefs = await SharedPreferences.getInstance();
+
+    // Get group name
+    final groupName = prefs.getString('groupName');
+    if (groupName == null) return;
+
+    // Get all users in the group
+    final users = await _firebaseService.getGroupUsers(groupName);
+
+    if (mounted) {
+      // Ensure values are strings (Firestore might return dynamic)
+      _userColors = Map<String, String>.fromEntries(
+        users.entries.map((e) => MapEntry(e.key, e.value.toString())),
+      );
+
+      print("=====================================");
+      print(_userColors);
     }
   }
 
@@ -211,6 +261,7 @@ class AnimatedPopupState extends State<AnimatedPopup> {
       ),
     );
 
+    // ignore: deprecated_member_use
     return WillPopScope(
       onWillPop: () async {
         _handleDismissOrSubmit();
@@ -237,6 +288,7 @@ class AnimatedPopupState extends State<AnimatedPopup> {
                       sigmaY: blurAnimation.value,
                     ),
                     child: Container(
+                      // ignore: deprecated_member_use
                       color: Colors.black.withOpacity(
                         0.3 * widget.animationController.value,
                       ),
@@ -245,7 +297,6 @@ class AnimatedPopupState extends State<AnimatedPopup> {
                 ),
               ),
               Positioned(
-
                 // Clue Text
                 top: clueTextTop,
                 left: 20,
@@ -255,11 +306,11 @@ class AnimatedPopupState extends State<AnimatedPopup> {
                   child: Material(
                     color: Theme.of(context).colorScheme.secondaryContainer,
                     borderRadius: BorderRadius.circular(12),
-                    
+
                     child: Column(
                       children: [
                         SizedBox(height: 8),
-                        
+
                         Text(
                           widget.clueText,
                           textAlign: TextAlign.center,
@@ -301,10 +352,7 @@ class AnimatedPopupState extends State<AnimatedPopup> {
                       ((widget.cellsToAnimate.length - 1 - visualIndex) *
                           (cellSize + cellSpacing));
                 }
-                final targetPosition = Offset(
-                  targetX,
-                  centerY / 1.2,
-                );
+                final targetPosition = Offset(targetX, centerY / 1.2);
 
                 final currentPosition =
                     Offset.lerp(
@@ -331,6 +379,7 @@ class AnimatedPopupState extends State<AnimatedPopup> {
                         borderRadius: BorderRadius.circular(3),
                         boxShadow: [
                           BoxShadow(
+                            // ignore: deprecated_member_use
                             color: Colors.black.withOpacity(
                               0.3 * widget.animationController.value,
                             ),

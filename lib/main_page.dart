@@ -1,6 +1,5 @@
 // Flutter imports
 import 'dart:convert';
-import 'package:crosswords/Settings/group.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -9,6 +8,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:crosswords/Logic/game_grid.dart';
 import 'package:crosswords/Settings/themes.dart';
 import 'package:crosswords/Settings/group.dart';
+import 'package:crosswords/Settings/firebase_service.dart';
 
 // ========== Main Page ========== //
 
@@ -20,6 +20,60 @@ class MainPage extends StatefulWidget {
 }
 
 class MainPageState extends State<MainPage> with TickerProviderStateMixin {
+  // ===== Class variables =====
+  // Firebase service
+  late final FirebaseService _firebaseService;
+
+  // ===== Class methods =====
+
+  // Initialize page
+  @override
+  void initState() {
+    super.initState();
+    _firebaseService = FirebaseService();
+  }
+
+  // Load puzzle numbers
+  Future<List<String>> _loadPuzzleNumbers() async {
+    final manifest = await rootBundle.loadString('AssetManifest.json');
+    final Map<String, dynamic> manifestMap = json.decode(manifest);
+    final puzzleFiles =
+        manifestMap.keys
+            .where(
+              (path) =>
+                  path.startsWith('assets/Puzzles/puzzle_') &&
+                  path.endsWith('_clues.json'),
+            )
+            .toList();
+
+    return puzzleFiles.map((path) => path.split('_')[1]).toList();
+  }
+
+  // Check if there is saved progress
+  Future<String?> _getPuzzleProgress(String puzzleNumber) async {
+    final prefs = await SharedPreferences.getInstance();
+
+    // Get group name
+    final groupName = prefs.getString('groupName');
+    if (groupName == null) {
+      // Get local progress
+      final savedProgress = prefs.getString('puzzle_progress_$puzzleNumber');
+      if (savedProgress != null) {
+        final progressMap = jsonDecode(savedProgress);
+        return progressMap['progress'];
+      }
+
+      return null;
+    }
+
+    // Otherwise get from Firebase
+    final progress = await _firebaseService.getPuzzleProgress(
+      groupName,
+      puzzleNumber,
+    );
+    return progress;
+  }
+
   // ===== Class widgets ===== //
 
   // App color selection bar
@@ -75,33 +129,6 @@ class MainPageState extends State<MainPage> with TickerProviderStateMixin {
         );
       },
     );
-  }
-
-  // Load puzzle numbers
-  Future<List<String>> _loadPuzzleNumbers() async {
-    final manifest = await rootBundle.loadString('AssetManifest.json');
-    final Map<String, dynamic> manifestMap = json.decode(manifest);
-    final puzzleFiles =
-        manifestMap.keys
-            .where(
-              (path) =>
-                  path.startsWith('assets/Puzzles/puzzle_') &&
-                  path.endsWith('_clues.json'),
-            )
-            .toList();
-
-    return puzzleFiles.map((path) => path.split('_')[1]).toList();
-  }
-
-  // Check if there is saved progress
-  Future<String?> _getPuzzleProgress(String puzzleNumber) async {
-    final prefs = await SharedPreferences.getInstance();
-    final savedProgress = prefs.getString('puzzle_progress_$puzzleNumber');
-    if (savedProgress != null) {
-      final progressMap = jsonDecode(savedProgress);
-      return progressMap['progress']; // Access the "progress" entry
-    }
-    return null;
   }
 
   // ===== Build method ===== //

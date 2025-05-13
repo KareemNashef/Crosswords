@@ -20,6 +20,12 @@ class PuzzleFirebaseService {
   }
 
     // Get the path for a specific puzzle's progress within a group
+  DocumentReference getPuzzleDocRef(String groupName, String puzzleNumber) {
+    // Example path: /groups/{groupName}/puzzles/{puzzleNumber}
+    return _firestore.collection('groups').doc(groupName).collection('puzzles').doc(puzzleNumber);
+  }
+
+    // Get the path for a specific puzzle's progress within a group
   DocumentReference _getPuzzleDocRef(String groupName, String puzzleNumber) {
     // Example path: /groups/{groupName}/puzzles/{puzzleNumber}
     return _firestore.collection('groups').doc(groupName).collection('puzzles').doc(puzzleNumber);
@@ -60,7 +66,6 @@ class PuzzleFirebaseService {
       
       return true;
     } catch (e) {
-      print('Error updating puzzle cell: $e');
       return false;
     }
   }
@@ -77,7 +82,6 @@ class PuzzleFirebaseService {
           
       return true;
     } catch (e) {
-      print('Error resetting puzzle: $e');
       return false;
     }
   }

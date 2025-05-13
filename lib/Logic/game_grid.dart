@@ -8,12 +8,11 @@ import 'package:flutter/services.dart' show rootBundle;
 import 'package:shared_preferences/shared_preferences.dart';
 
 // Local imports
-import 'package:crosswords/Settings/firebase.dart';
-import 'package:crosswords/Logic/puzzle_firebase_service.dart';
-import 'package:crosswords/Settings/group.dart';
 import 'package:crosswords/Logic/cell_model.dart';
 import 'package:crosswords/Logic/clue_model.dart';
 import 'package:crosswords/Logic/animated_popup.dart';
+import 'package:crosswords/Utilities/color_utils.dart';
+import 'package:crosswords/Settings/firebase_service.dart';
 
 class GameGrid extends StatefulWidget {
   final String puzzleNumber;
@@ -24,6 +23,8 @@ class GameGrid extends StatefulWidget {
 }
 
 class GameGridState extends State<GameGrid> with TickerProviderStateMixin {
+  // ===== Class variables =====
+
   // Grid & Game State
   int gridSize = 15;
   List<List<CellModel>> gridCellData = [];
@@ -55,9 +56,8 @@ class GameGridState extends State<GameGrid> with TickerProviderStateMixin {
   int? _swipeCellRow;
   int? _swipeCellCol;
 
-  // Firebase & Group State
-  late PuzzleFirebaseService _puzzleFirebaseService;
-  late GroupFirebaseService _groupFirebaseService;
+  // Firebase service
+  late final FirebaseService _firebaseService;
   String _currentGroupName = '';
   String _currentUserName = '';
   bool _isInGroup = false;
@@ -67,15 +67,13 @@ class GameGridState extends State<GameGrid> with TickerProviderStateMixin {
   @override
   void initState() {
     super.initState();
-    _puzzleFirebaseService = PuzzleFirebaseService();
-    _groupFirebaseService = GroupFirebaseService();
+    _firebaseService = FirebaseService();
 
     _animationController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 100),
     );
 
-    // Initialize: Load user info -> Load puzzle structure & progress -> Subscribe
     _initializeGame();
   }
 
@@ -123,7 +121,7 @@ class GameGridState extends State<GameGrid> with TickerProviderStateMixin {
     if (!_isInGroup || _currentGroupName.isEmpty) return;
 
     // Get all users in the group
-    final users = await _groupFirebaseService.getGroupUsers(_currentGroupName);
+    final users = await _firebaseService.getGroupUsers(_currentGroupName);
 
     if (mounted) {
       // Ensure values are strings (Firestore might return dynamic)
@@ -136,6 +134,7 @@ class GameGridState extends State<GameGrid> with TickerProviderStateMixin {
   Future<void> _initializeColors() async {
     if (_colorsInitialized) return; // Already initialized
     final prefs = await SharedPreferences.getInstance();
+    // ignore: use_build_context_synchronously
     final theme = Theme.of(context);
 
     // Initialize theme-dependent colors
@@ -302,7 +301,7 @@ class GameGridState extends State<GameGrid> with TickerProviderStateMixin {
     // Load progress from Firebase
     if (_isInGroup && _currentGroupName.isNotEmpty) {
       progressData =
-          await _puzzleFirebaseService
+          await _firebaseService
               .streamPuzzleProgress(_currentGroupName, widget.puzzleNumber)
               .first;
       if (progressData.isNotEmpty) {
@@ -336,8 +335,6 @@ class GameGridState extends State<GameGrid> with TickerProviderStateMixin {
     // Apply the loaded progress (if any)
     if (progressData != null && progressData.isNotEmpty) {
       _applyRemotePuzzleProgress(progressData, isInitialLoad: true);
-    } else {
-      print("Starting puzzle fresh - no saved progress found.");
     }
   }
 
@@ -355,7 +352,7 @@ class GameGridState extends State<GameGrid> with TickerProviderStateMixin {
     _puzzleSubscription?.cancel();
 
     // Subscribe
-    _puzzleSubscription = _puzzleFirebaseService
+    _puzzleSubscription = _firebaseService
         .streamPuzzleProgress(_currentGroupName, widget.puzzleNumber)
         .listen((progressData) {
           if (mounted && gridCellData.isNotEmpty && _colorsInitialized) {
@@ -412,8 +409,6 @@ class GameGridState extends State<GameGrid> with TickerProviderStateMixin {
 
     // Update overall puzzle solved state
     if (isPuzzleSolved != isNowLocallyComplete) {
-      // If the puzzle is now complete locally, but Firebase doesn't say 'Done' yet,
-      // OR if Firebase says 'Done', ensure our local state matches.
       if (isNowLocallyComplete || remoteReportsDone) {
         if (!isPuzzleSolved) {
           // Only update if changing state
@@ -465,7 +460,7 @@ class GameGridState extends State<GameGrid> with TickerProviderStateMixin {
     }
 
     // Sync
-    await _puzzleFirebaseService.updatePuzzleCell(
+    await _firebaseService.updatePuzzleCell(
       _currentGroupName,
       widget.puzzleNumber,
       r,
@@ -480,7 +475,7 @@ class GameGridState extends State<GameGrid> with TickerProviderStateMixin {
     if (!_isInGroup || _currentGroupName.isEmpty) return;
 
     // Sync
-    await _puzzleFirebaseService.updatePuzzleProgressBatch(
+    await _firebaseService.updatePuzzleProgressBatch(
       _currentGroupName,
       widget.puzzleNumber,
       progressMap,
@@ -492,7 +487,7 @@ class GameGridState extends State<GameGrid> with TickerProviderStateMixin {
     if (!_isInGroup || _currentGroupName.isEmpty) return;
 
     // Sync
-    await _puzzleFirebaseService.updatePuzzleMetadata(
+    await _firebaseService.updatePuzzleMetadata(
       _currentGroupName,
       widget.puzzleNumber,
       {'progress': status},
@@ -500,6 +495,33 @@ class GameGridState extends State<GameGrid> with TickerProviderStateMixin {
   }
 
   // --- Local Persistence & State ---
+
+  void _solvePuzzle() {
+    // Iterate over grid
+    for (int r = 0; r < gridSize; r++) {
+      for (int c = 0; c < gridSize; c++) {
+        final cell = gridCellData[r][c];
+        if (cell.isBlackSquare) continue;
+
+        // Update cell only if necessary
+        if (cell.enteredChar != cell.solutionChar) {
+          cell.enteredChar = cell.solutionChar;
+          _updateCellColor(cell);
+          _syncCellChangeToFirebase(r, c, cell.solutionChar, _currentUserName);
+        }
+      }
+    }
+
+    if (!isPuzzleSolved) {
+      isPuzzleSolved = true;
+    }
+
+    if (_isInGroup) {
+      _updateFirebaseProgressMetadata("Done");
+    }
+
+    setState(() {});
+  }
 
   Future<void> _savePuzzleProgressLocally() async {
     final prefs = await SharedPreferences.getInstance();
@@ -612,7 +634,7 @@ class GameGridState extends State<GameGrid> with TickerProviderStateMixin {
 
     // 3. Clear Firebase progress (if in group)
     if (_isInGroup && _currentGroupName.isNotEmpty) {
-      await _puzzleFirebaseService.resetPuzzleProgress(
+      await _firebaseService.resetPuzzleProgress(
         _currentGroupName,
         widget.puzzleNumber,
       );
@@ -936,6 +958,7 @@ class GameGridState extends State<GameGrid> with TickerProviderStateMixin {
     showGeneralDialog(
       context: context,
       barrierDismissible: true,
+      // ignore: deprecated_member_use
       barrierColor: Colors.black54.withOpacity(0.6),
       barrierLabel: "Dismiss",
       transitionDuration: const Duration(milliseconds: 400),
@@ -1084,6 +1107,7 @@ class GameGridState extends State<GameGrid> with TickerProviderStateMixin {
 
       // Actions
       actions: [
+        // Reset
         IconButton(
           icon: Icon(
             Icons.refresh,
@@ -1091,6 +1115,17 @@ class GameGridState extends State<GameGrid> with TickerProviderStateMixin {
           ),
           tooltip: 'إعادة ضبط اللغز',
           onPressed: _isLoading ? null : _resetPuzzle,
+        ),
+
+        // Padding
+        SizedBox(width: 8),
+
+        // Solve
+        if(_currentUserName == "هعهع" || _currentUserName == "بوتيتو")
+        IconButton(
+          icon: Icon(Icons.check, color: Theme.of(context).colorScheme.primary),
+          tooltip: 'إعادة ضبط اللغز',
+          onPressed: _isLoading ? null : _solvePuzzle,
         ),
 
         // Padding
@@ -1152,7 +1187,7 @@ class GameGridState extends State<GameGrid> with TickerProviderStateMixin {
 
             // --- Conditionally Display Active Group Colors ---
             // if (_isInGroup && !_isLoading && _userColors.isNotEmpty)
-              ActiveGroupColors(groupUsersColors: _userColors),
+            ActiveGroupColors(groupUsersColors: _userColors),
 
             // --- Completion Buttons (conditional) ---
             if (isPuzzleSolved) _buildCompletionButtons(),
