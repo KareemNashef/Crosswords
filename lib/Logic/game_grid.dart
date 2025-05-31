@@ -2,7 +2,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:math' show Point;
-import 'package:crosswords/Logic/active_group_colors.dart';
+import 'package:crosswords/Logic/active_group_data.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:shared_preferences/shared_preferences.dart';
@@ -63,6 +63,8 @@ class GameGridState extends State<GameGrid> with TickerProviderStateMixin {
   bool _isInGroup = false;
   StreamSubscription? _puzzleSubscription;
   Map<String, String> _userColors = {};
+  Map<String, int> _userScores = {};
+  Map<String, bool> _userActive = {};
 
   @override
   void initState() {
@@ -74,6 +76,7 @@ class GameGridState extends State<GameGrid> with TickerProviderStateMixin {
       duration: const Duration(milliseconds: 100),
     );
 
+    startActiveUserUpdates();
     _initializeGame();
   }
 
@@ -88,6 +91,7 @@ class GameGridState extends State<GameGrid> with TickerProviderStateMixin {
 
   @override
   void dispose() {
+    activeUserTimer?.cancel();
     _animationController.dispose();
     _puzzleSubscription?.cancel(); // Crucial for preventing memory leaks
     super.dispose();
@@ -494,6 +498,40 @@ class GameGridState extends State<GameGrid> with TickerProviderStateMixin {
     );
   }
 
+  Timer? activeUserTimer;
+
+  void startActiveUserUpdates() {
+    activeUserTimer?.cancel();
+    activeUserTimer = Timer.periodic(Duration(seconds: 3), (_) async {
+      if (_currentUserName.isEmpty || _currentGroupName.isEmpty) return;
+
+      // Update self
+      await _firebaseService.updateActiveUser(
+        _currentGroupName,
+        widget.puzzleNumber,
+        _currentUserName,
+      );
+
+      // Fetch latest active data
+      final doc = await _firebaseService.getPuzzleDoc(
+        _currentGroupName,
+        widget.puzzleNumber,
+      );
+      final data = doc.data();
+      final activeMap = data?['active'] as Map<String, dynamic>? ?? {};
+      final now = DateTime.now();
+
+      _userActive.clear();
+      activeMap.forEach((user, timestamp) {
+        final lastActive = DateTime.tryParse(timestamp ?? '');
+        _userActive[user] =
+            lastActive != null && now.difference(lastActive).inSeconds <= 5;
+      });
+
+      if (mounted) setState(() {});
+    });
+  }
+
   // --- Local Persistence & State ---
 
   void _solvePuzzle() {
@@ -646,6 +684,32 @@ class GameGridState extends State<GameGrid> with TickerProviderStateMixin {
     }
   }
 
+  void _calculateScores() {
+    // Clear scores
+    _userScores.clear();
+
+    // Iterate over grid
+    for (int r = 0; r < gridSize; r++) {
+      for (int c = 0; c < gridSize; c++) {
+        final cell = gridCellData[r][c];
+
+        if (cell.isBlackSquare) continue;
+
+        // Update cell only if necessary
+        if (cell.enteredChar == cell.solutionChar) {
+          // Update score
+          if (cell.madeBy.isNotEmpty) {
+            if (_userScores.containsKey(cell.madeBy)) {
+              _userScores[cell.madeBy] = _userScores[cell.madeBy]! + 1;
+            } else {
+              _userScores[cell.madeBy] = 1;
+            }
+          }
+        }
+      }
+    }
+  }
+
   // --- Cell & Color Updates ---
 
   void _updateCellColor(CellModel cell) {
@@ -762,12 +826,12 @@ class GameGridState extends State<GameGrid> with TickerProviderStateMixin {
     }
 
     // If the target is the same as the already active clue, show popup immediately
-    if (targetClue == activeClue &&
-        targetBlockIndex == activeBlockIndexInClue &&
-        targetDirection == activeDirection) {
-      _showAnimatedPopup();
-      return;
-    }
+    // if (targetClue == activeClue &&
+    //     targetBlockIndex == activeBlockIndexInClue &&
+    //     targetDirection == activeDirection) {
+    //   _showAnimatedPopup();
+    //   return;
+    // }
 
     // Clear previous selection and prepare for new one
     _clearSelectionHighlight();
@@ -901,21 +965,23 @@ class GameGridState extends State<GameGrid> with TickerProviderStateMixin {
               String? enteredForThisCell = enteredCharsMap[cell.animationIndex];
 
               if (enteredForThisCell != null) {
-                // If entered char is different, update
-                if (cell.enteredChar != enteredForThisCell) {
-                  // Update cell
-                  cell.enteredChar = enteredForThisCell;
-                  cell.madeBy = _currentUserName;
-                  _updateCellColor(cell);
+                // Update only if enteredChar is not correct
+                if (cell.enteredChar != cell.solutionChar) {
+                  if (cell.enteredChar != enteredForThisCell) {
+                    // Update cell
+                    cell.enteredChar = enteredForThisCell;
+                    cell.madeBy = _currentUserName;
+                    _updateCellColor(cell);
 
-                  // Sync change to Firebase if in a group
-                  _syncCellChangeToFirebase(
-                    cell.row,
-                    cell.col,
-                    cell.enteredChar,
-                    cell.madeBy,
-                  );
-                  changed = true;
+                    // Sync change to Firebase if in a group
+                    _syncCellChangeToFirebase(
+                      cell.row,
+                      cell.col,
+                      cell.enteredChar,
+                      cell.madeBy,
+                    );
+                    changed = true;
+                  }
                 }
               }
             }
@@ -1121,12 +1187,15 @@ class GameGridState extends State<GameGrid> with TickerProviderStateMixin {
         SizedBox(width: 8),
 
         // Solve
-        if(_currentUserName == "هعهع" || _currentUserName == "بوتيتو")
-        IconButton(
-          icon: Icon(Icons.check, color: Theme.of(context).colorScheme.primary),
-          tooltip: 'إعادة ضبط اللغز',
-          onPressed: _isLoading ? null : _solvePuzzle,
-        ),
+        if (_currentUserName == "هعهع" || _currentUserName == "بوتيتو")
+          IconButton(
+            icon: Icon(
+              Icons.check,
+              color: Theme.of(context).colorScheme.primary,
+            ),
+            tooltip: 'إعادة ضبط اللغز',
+            onPressed: _isLoading ? null : _solvePuzzle,
+          ),
 
         // Padding
         SizedBox(width: 8),
@@ -1145,6 +1214,9 @@ class GameGridState extends State<GameGrid> with TickerProviderStateMixin {
     const double gridMargin = 8.0;
     const double headerSpacing = 4.0;
     const double cellSpacing = 1.5;
+
+    // Calculate scores for each user
+    _calculateScores();
 
     // Main layout structure
     return SingleChildScrollView(
@@ -1187,7 +1259,11 @@ class GameGridState extends State<GameGrid> with TickerProviderStateMixin {
 
             // --- Conditionally Display Active Group Colors ---
             // if (_isInGroup && !_isLoading && _userColors.isNotEmpty)
-            ActiveGroupColors(groupUsersColors: _userColors),
+            ActiveGroupData(
+              groupUsersColors: _userColors,
+              groupUsersScores: _userScores,
+              groupUsersActive: _userActive,
+            ),
 
             // --- Completion Buttons (conditional) ---
             if (isPuzzleSolved) _buildCompletionButtons(),

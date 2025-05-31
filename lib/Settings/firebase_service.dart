@@ -204,13 +204,24 @@ class FirebaseService {
         .doc(puzzleNumber);
   }
 
+  Future<DocumentSnapshot<Map<String, dynamic>>> getPuzzleDoc(
+    String groupName,
+    String puzzleNumber,
+  ) {
+    return _getPuzzleDocRef(
+      groupName,
+      puzzleNumber,
+    ).get().then((doc) => doc as DocumentSnapshot<Map<String, dynamic>>);
+  }
+
   Future<String?> getPuzzleProgress(
     String groupName,
     String puzzleNumber,
   ) async {
     final doc = await _getPuzzleDocRef(groupName, puzzleNumber).get();
-    if (doc.exists) {
-      return doc['progress'] as String?;
+    final data = doc.data() as Map<String, dynamic>?;
+    if (doc.exists && data != null && data.containsKey('progress')) {
+      return data['progress'] as String?;
     }
     return null;
   }
@@ -240,6 +251,20 @@ class FirebaseService {
     // Firestore's set with merge:true handles batch updates efficiently if the map keys are field paths
     // Ensure progressData keys are in 'r_c' format
     await docRef.set(progressData, SetOptions(merge: true));
+  }
+
+  // Update active user
+  Future<void> updateActiveUser(
+    String groupName,
+    String puzzleNumber,
+    String userName,
+  ) async {
+    final docRef = _getPuzzleDocRef(groupName, puzzleNumber);
+    final now = DateTime.now().toIso8601String();
+
+    await docRef.set({
+      'active': {userName: now},
+    }, SetOptions(merge: true));
   }
 
   // Update metadata like 'progress' status

@@ -2,9 +2,11 @@
 import 'package:flutter/material.dart';
 import 'dart:ui';
 import 'package:crosswords/Settings/firebase_service.dart';
+import 'dart:async';
 
 // Local imports
 import 'package:crosswords/Logic/cell_model.dart';
+import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 // ========== Animated Popup ========== //
@@ -47,6 +49,8 @@ class AnimatedPopupState extends State<AnimatedPopup> {
   late List<FocusNode> _cellFocusNodes;
   late List<String> _currentEnteredChars;
   late List<Color> _currentCellColors;
+  late List<bool> _cellsLocked; // Track which cells are locked
+  bool _suppressListener = false;
 
   // Controllers
   late List<TextEditingController> _cellTextControllers;
@@ -54,6 +58,9 @@ class AnimatedPopupState extends State<AnimatedPopup> {
   // Firebase service
   late final FirebaseService _firebaseService;
   Map<String, String> _userColors = {};
+
+  // Timer for periodic updates
+  Timer? _updateTimer;
 
   // ===== Class methods ===== //
 
@@ -75,6 +82,14 @@ class AnimatedPopupState extends State<AnimatedPopup> {
     _currentEnteredChars =
         widget.cellsToAnimate.map((c) => c.enteredChar).toList();
 
+    // Initialize locked cells based on current state
+    _cellsLocked = List.generate(
+      widget.cellsToAnimate.length,
+      (index) =>
+          widget.cellsToAnimate[index].enteredChar ==
+          widget.cellsToAnimate[index].solutionChar,
+    );
+
     widget.animationController.addStatusListener(_onAnimationStatusChanged);
     for (int i = 0; i < _cellTextControllers.length; i++) {
       _cellTextControllers[i].addListener(() => _onCellTextChanged(i));
@@ -84,6 +99,58 @@ class AnimatedPopupState extends State<AnimatedPopup> {
       widget.initialCellColor,
     );
     _loadUserColorsAndSetCellColors();
+
+    // Start periodic updates to check for external changes
+    _startPeriodicUpdates();
+  }
+
+  void _startPeriodicUpdates() {
+    _updateTimer = Timer.periodic(const Duration(milliseconds: 500), (timer) {
+      if (mounted) {
+        _checkForExternalUpdates();
+      }
+    });
+  }
+
+  void _checkForExternalUpdates() {
+    if (!mounted) return;
+
+    bool hasUpdates = false;
+
+    for (int i = 0; i < widget.cellsToAnimate.length; i++) {
+      final cell = widget.cellsToAnimate[i];
+
+      // Only check for external changes if the current local value differs from the cell data
+      // AND the cell data represents a correct solution
+      if (cell.enteredChar == cell.solutionChar) {
+        // Lock this cell and update its appearance
+        _cellsLocked[i] = true;
+        _currentEnteredChars[i] = cell.enteredChar;
+
+        // Update controller WITHOUT triggering listener
+        _suppressListener = true;
+        _cellTextControllers[i].text = cell.enteredChar;
+        _suppressListener = false;
+
+        // Update color based on who made the entry
+        final madeBy = cell.madeBy?.trim() ?? '';
+        final colorHex = _userColors[madeBy];
+
+        if (madeBy.isEmpty || _userColors.isEmpty || colorHex == null) {
+          _currentCellColors[i] = widget.correctCellColor;
+        } else {
+          _currentCellColors[i] = Color(
+            int.parse(colorHex.replaceFirst('#', '0xff')),
+          );
+        }
+
+        hasUpdates = true;
+      }
+    }
+
+    if (hasUpdates && mounted) {
+      setState(() {});
+    }
   }
 
   void _loadUserColorsAndSetCellColors() async {
@@ -102,6 +169,8 @@ class AnimatedPopupState extends State<AnimatedPopup> {
           widget.cellsToAnimate.map((c) {
             if (c.enteredChar.isEmpty) return widget.initialCellColor;
 
+            if (c.enteredChar != c.solutionChar) return widget.errorCellColor;
+
             final madeBy = c.madeBy?.trim() ?? '';
             final colorHex = _userColors[madeBy];
 
@@ -112,28 +181,6 @@ class AnimatedPopupState extends State<AnimatedPopup> {
             return Color(int.parse(colorHex.replaceFirst('#', '0xff')));
           }).toList();
     });
-  }
-
-  // Group colors
-  Future<void> _groupColors() async {
-    final prefs = await SharedPreferences.getInstance();
-
-    // Get group name
-    final groupName = prefs.getString('groupName');
-    if (groupName == null) return;
-
-    // Get all users in the group
-    final users = await _firebaseService.getGroupUsers(groupName);
-
-    if (mounted) {
-      // Ensure values are strings (Firestore might return dynamic)
-      _userColors = Map<String, String>.fromEntries(
-        users.entries.map((e) => MapEntry(e.key, e.value.toString())),
-      );
-
-      print("=====================================");
-      print(_userColors);
-    }
   }
 
   // Animation listener - Fixed version
@@ -149,7 +196,9 @@ class AnimatedPopupState extends State<AnimatedPopup> {
             focusIdx = 0;
           }
 
-          if (focusIdx >= 0 && focusIdx < _cellFocusNodes.length) {
+          if (focusIdx >= 0 &&
+              focusIdx < _cellFocusNodes.length &&
+              !_cellsLocked[focusIdx]) {
             FocusScope.of(context).requestFocus(_cellFocusNodes[focusIdx]);
             _cellTextControllers[focusIdx].selection = TextSelection(
               baseOffset: 0,
@@ -163,6 +212,18 @@ class AnimatedPopupState extends State<AnimatedPopup> {
 
   // Text controller listener
   void _onCellTextChanged(int index) {
+    if (_suppressListener) return;
+
+    // Don't allow changes to locked cells
+    if (_cellsLocked[index]) {
+      // Restore the original text if someone tries to change a locked cell
+      _cellTextControllers[index].text = _currentEnteredChars[index];
+      _cellTextControllers[index].selection = TextSelection.fromPosition(
+        TextPosition(offset: _currentEnteredChars[index].length),
+      );
+      return;
+    }
+
     String newChar = _cellTextControllers[index].text;
     if (newChar.length > 1) {
       newChar = newChar.substring(newChar.length - 1);
@@ -173,13 +234,28 @@ class AnimatedPopupState extends State<AnimatedPopup> {
     }
 
     bool isCorrectEntry = false;
+
+    // Update local state immediately
+    _currentEnteredChars[index] = newChar;
+
     setState(() {
-      _currentEnteredChars[index] = newChar;
       if (newChar.isEmpty) {
         _currentCellColors[index] = widget.initialCellColor;
       } else {
         if (newChar == widget.cellsToAnimate[index].solutionChar) {
-          _currentCellColors[index] = widget.correctCellColor;
+          // Lock this cell since it's now correct
+          _cellsLocked[index] = true;
+
+          final madeBy = widget.cellsToAnimate[index].madeBy?.trim() ?? '';
+          final colorHex = _userColors[madeBy];
+
+          if (madeBy.isEmpty || _userColors.isEmpty || colorHex == null) {
+            _currentCellColors[index] = widget.correctCellColor;
+          } else {
+            _currentCellColors[index] = Color(
+              int.parse(colorHex.replaceFirst('#', '0xff')),
+            );
+          }
           isCorrectEntry = true;
         } else {
           _currentCellColors[index] = widget.errorCellColor;
@@ -188,11 +264,18 @@ class AnimatedPopupState extends State<AnimatedPopup> {
     });
 
     if (newChar.isNotEmpty && isCorrectEntry) {
-      if (index < _cellTextControllers.length - 1) {
-        FocusScope.of(context).requestFocus(_cellFocusNodes[index + 1]);
-        _cellTextControllers[index + 1].selection = TextSelection(
+      // Find next unlocked cell to focus
+      int nextIndex = index + 1;
+      while (nextIndex < _cellTextControllers.length &&
+          _cellsLocked[nextIndex]) {
+        nextIndex++;
+      }
+
+      if (nextIndex < _cellTextControllers.length) {
+        FocusScope.of(context).requestFocus(_cellFocusNodes[nextIndex]);
+        _cellTextControllers[nextIndex].selection = TextSelection(
           baseOffset: 0,
-          extentOffset: _cellTextControllers[index + 1].text.length,
+          extentOffset: _cellTextControllers[nextIndex].text.length,
         );
       }
     }
@@ -201,6 +284,7 @@ class AnimatedPopupState extends State<AnimatedPopup> {
   // Dispose
   @override
   void dispose() {
+    _updateTimer?.cancel();
     widget.animationController.removeStatusListener(_onAnimationStatusChanged);
     for (var controller in _cellTextControllers) {
       controller.dispose();
@@ -372,8 +456,14 @@ class AnimatedPopupState extends State<AnimatedPopup> {
                       height: originalRect.height,
                       decoration: BoxDecoration(
                         border: Border.all(
-                          width: 1,
-                          color: Theme.of(context).colorScheme.outline,
+                          width:
+                              _cellsLocked[index]
+                                  ? 2
+                                  : 1, // Thicker border for locked cells
+                          color:
+                              _cellsLocked[index]
+                                  ? _currentCellColors[index]
+                                  : Theme.of(context).colorScheme.outline,
                         ),
                         color: _currentCellColors[index],
                         borderRadius: BorderRadius.circular(3),
@@ -425,6 +515,26 @@ class AnimatedPopupState extends State<AnimatedPopup> {
                                           textAlign: TextAlign.center,
                                           textDirection: TextDirection.rtl,
                                           maxLength: 1,
+                                          maxLengthEnforcement:
+                                              MaxLengthEnforcement.none,
+                                          onChanged: (value) {
+                                            if (value.isNotEmpty) {
+                                              final char =
+                                                  value.characters.last;
+                                              _suppressListener = true;
+                                              _cellTextControllers[index]
+                                                  .value = TextEditingValue(
+                                                text: char,
+                                                selection: TextSelection(
+                                                  baseOffset: 0,
+                                                  extentOffset: char.length,
+                                                ),
+                                              );
+                                              _suppressListener = false;
+                                            }
+                                          },
+                                          enabled:
+                                              !_cellsLocked[index], // Disable input for locked cells
                                           style: TextStyle(
                                             color: _getContrastColor(
                                               _currentCellColors[index],
@@ -450,20 +560,27 @@ class AnimatedPopupState extends State<AnimatedPopup> {
                                                   ? TextInputAction.done
                                                   : TextInputAction.next,
                                           onSubmitted: (_) {
-                                            if (index <
-                                                _cellTextControllers.length -
-                                                    1) {
+                                            // Find next unlocked cell
+                                            int nextIndex = index + 1;
+                                            while (nextIndex <
+                                                    _cellTextControllers
+                                                        .length &&
+                                                _cellsLocked[nextIndex]) {
+                                              nextIndex++;
+                                            }
+
+                                            if (nextIndex <
+                                                _cellTextControllers.length) {
                                               FocusScope.of(
                                                 context,
                                               ).requestFocus(
-                                                _cellFocusNodes[index + 1],
+                                                _cellFocusNodes[nextIndex],
                                               );
-                                              _cellTextControllers[index + 1]
+                                              _cellTextControllers[nextIndex]
                                                   .selection = TextSelection(
                                                 baseOffset: 0,
                                                 extentOffset:
-                                                    _cellTextControllers[index +
-                                                            1]
+                                                    _cellTextControllers[nextIndex]
                                                         .text
                                                         .length,
                                               );

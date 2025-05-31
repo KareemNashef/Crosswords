@@ -18,3 +18,11 @@ Color hexStringToColor(String hexString) {
     return Colors.black; // Fallback color in case of error
   }
 }
+
+// Determines a contrasting text color (black or white) for a given background color.
+Color getContrastColor(Color backgroundColor) {
+  // Calculate luminance (0.0 black to 1.0 white)
+  double luminance = backgroundColor.computeLuminance();
+  // Use white text on dark backgrounds and black text on light backgrounds
+  return luminance > 0.5 ? Colors.black : Colors.white;
+}
