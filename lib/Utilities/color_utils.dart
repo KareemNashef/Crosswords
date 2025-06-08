@@ -10,7 +10,8 @@ String colorToHexString(Color color) {
 // Converts a HEX string (e.g., #RRGGBB) to a Color object
 Color hexStringToColor(String hexString) {
   final buffer = StringBuffer();
-  if (hexString.length == 6 || hexString.length == 7) buffer.write('ff'); // Add alpha if missing (assume opaque)
+  if (hexString.length == 6 || hexString.length == 7)
+    buffer.write('ff'); // Add alpha if missing (assume opaque)
   buffer.write(hexString.replaceFirst('#', ''));
   try {
     return Color(int.parse(buffer.toString(), radix: 16));
@@ -25,4 +26,33 @@ Color getContrastColor(Color backgroundColor) {
   double luminance = backgroundColor.computeLuminance();
   // Use white text on dark backgrounds and black text on light backgrounds
   return luminance > 0.5 ? Colors.black : Colors.white;
+}
+
+
+BoxDecoration backgroundGradient(context) {
+  return BoxDecoration(
+    gradient: LinearGradient(
+      begin: Alignment.topLeft,
+      end: Alignment.bottomRight,
+      colors: [
+        Theme.of(context).colorScheme.primaryContainer,
+        Theme.of(context).colorScheme.secondaryContainer,
+        Theme.of(context).colorScheme.tertiaryContainer,
+      ],
+    ),
+  );
+}
+
+BoxDecoration containerGradient(context) {
+  return BoxDecoration(
+    gradient: LinearGradient(
+      begin: Alignment.topLeft,
+      end: Alignment.bottomRight,
+      colors: [
+        Theme.of(context).colorScheme.primary,
+        Theme.of(context).colorScheme.secondary,
+        Theme.of(context).colorScheme.tertiary,
+      ],
+    ),
+  );
 }

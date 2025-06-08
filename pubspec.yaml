@@ -34,3 +34,6 @@ flutter:
   assets:
     - assets/Puzzles/
     - assets/settings/
+    - assets/background/
+    - assets/borders/
+    - assets/letters/

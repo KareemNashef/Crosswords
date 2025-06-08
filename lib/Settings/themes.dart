@@ -5,176 +5,253 @@ import 'package:provider/provider.dart';
 // Local imports
 import 'package:crosswords/providors.dart';
 
+// A list of available accent colors
+const List<Color> _accentColors = [
+  Color(0xFFEF5350), // Red
+  Color(0xFF66BB6A), // Green
+  Color(0xFF42A5F5), // Blue
+  Color(0xFFFFCA28), // Yellow (adjusted for better visibility)
+  Color(0xFFAB47BC), // Purple
+  Color(0xFFFF7043), // Orange
+  Color(0xFF26C6DA), // Teal
+  Color(0xFF7E57C2), // Deep Purple
+];
+
 // Theme settings page
 class ThemeSettingsPage extends StatelessWidget {
   const ThemeSettingsPage({super.key});
 
-  // App theme selection bar
-  Widget themeSelectionBar(BuildContext context) {
-    double size = 120;
-    double sizePic = 200;
+  @override
+  Widget build(BuildContext context) {
+    final themeProvider = context.watch<ThemeProvider>();
 
-    Widget themeCard({
-      required String assetPath,
-      required bool isSelected,
-      required VoidCallback onTap,
-    }) {
-      return AnimatedContainer(
-        duration: const Duration(milliseconds: 300),
-        width: size,
-        height: sizePic,
-        decoration: BoxDecoration(
-          color:
-              isSelected
-                  ? Theme.of(context).colorScheme.primary
-                  : Colors.transparent,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(
-            width: 3,
-            color:
-                isSelected
-                    ? Theme.of(context).colorScheme.primary
-                    : Colors.transparent,
-          ),
+    return Container(
+      // Consistent gradient background
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            Theme.of(context).colorScheme.primaryContainer,
+            Theme.of(context).colorScheme.secondaryContainer,
+            Theme.of(context).colorScheme.tertiaryContainer,
+          ],
         ),
-        child: Stack(
-          alignment: Alignment.center,
-          children: [
-            ClipRRect(
-              borderRadius: BorderRadius.circular(12),
-              child: Stack(
+      ),
+      child: Scaffold(
+        backgroundColor: Colors.transparent,
+        appBar: AppBar(
+          backgroundColor: Colors.transparent,
+          elevation: 0,
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back),
+            onPressed: () => Navigator.of(context).pop(),
+            color: Theme.of(context).colorScheme.primary,
+          ),
+          title: Text(
+            'اعدادات المظهر',
+            style: TextStyle(
+              color: Theme.of(context).colorScheme.primary,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          centerTitle: true,
+        ),
+        body: SingleChildScrollView(
+          padding: const EdgeInsets.all(16.0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Theme Mode Section
+              _buildSectionTitle(context, 'اعدادات اللون'),
+              const SizedBox(height: 16),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceAround,
                 children: [
-                  Container(
-                    width: sizePic,
-                    height: sizePic,
-                    color: Theme.of(context).colorScheme.primary,
+                  _ThemeSelectionCard(
+                    label: 'فاتح',
+                    assetPath: 'assets/settings/LightMode.png',
+                    isSelected: themeProvider.themeMode == ThemeMode.light,
+                    onTap:
+                        () => context.read<ThemeProvider>().setThemeMode(
+                          ThemeMode.light,
+                        ),
                   ),
-                  Image.asset(
-                    assetPath,
-                    width: sizePic,
-                    height: sizePic,
-                    fit: BoxFit.cover,
+                  _ThemeSelectionCard(
+                    label: 'غامق',
+                    assetPath: 'assets/settings/DarkMode.png',
+                    isSelected: themeProvider.themeMode == ThemeMode.dark,
+                    onTap:
+                        () => context.read<ThemeProvider>().setThemeMode(
+                          ThemeMode.dark,
+                        ),
+                  ),
+                  _ThemeSelectionCard(
+                    label: 'الشسمو',
+                    assetPath: 'assets/settings/AutoMode.png',
+                    isSelected: themeProvider.themeMode == ThemeMode.system,
+                    onTap:
+                        () => context.read<ThemeProvider>().setThemeMode(
+                          ThemeMode.system,
+                        ),
                   ),
                 ],
               ),
-            ),
+              const SizedBox(height: 32),
 
-            Material(
-              color: Colors.transparent,
-              child: InkWell(
-                borderRadius: BorderRadius.circular(12),
-                onTap: onTap,
+              // Accent Color Section
+              Card(
+                color: Theme.of(context).cardColor.withOpacity(0.5),
+                elevation: 0,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.all(16.0),
+                  child: Wrap(
+                    alignment: WrapAlignment.center,
+                    spacing: 16.0,
+                    runSpacing: 16.0,
+                    children:
+                        _accentColors.map((color) {
+                          return _ColorSwatch(
+                            color: color,
+                            isSelected: themeProvider.mainColor == color,
+                            onTap:
+                                () => context
+                                    .read<ThemeProvider>()
+                                    .setMainColor(color),
+                          );
+                        }).toList(),
+                  ),
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
-      );
-    }
-
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-      children: [
-        themeCard(
-          assetPath: 'assets/settings/LightMode.png',
-          isSelected:
-              context.watch<ThemeProvider>().themeMode == ThemeMode.light,
-          onTap:
-              () => context.read<ThemeProvider>().setThemeMode(ThemeMode.light),
-        ),
-        themeCard(
-          assetPath: 'assets/settings/DarkMode.png',
-          isSelected:
-              context.watch<ThemeProvider>().themeMode == ThemeMode.dark,
-          onTap:
-              () => context.read<ThemeProvider>().setThemeMode(ThemeMode.dark),
-        ),
-        themeCard(
-          assetPath: 'assets/settings/AutoMode.png',
-          isSelected:
-              context.watch<ThemeProvider>().themeMode == ThemeMode.system,
-          onTap:
-              () =>
-                  context.read<ThemeProvider>().setThemeMode(ThemeMode.system),
-        ),
-      ],
+      ),
     );
   }
 
-  // App color selection bar
-  Widget colorSelectionBar(context) {
-    Widget colorButton(BuildContext context, Color color) {
-      return OutlinedButton(
-        style: OutlinedButton.styleFrom(
-          fixedSize: const Size(350, 50),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-          ),
-          backgroundColor: color,
-          side: BorderSide(
-            color:
-                context.watch<ThemeProvider>().mainColor == color
-                    ? Theme.of(context).colorScheme.primary
-                    : Colors.transparent,
-            width: 6,
-          ),
+  Widget _buildSectionTitle(BuildContext context, String title) {
+    return Padding(
+      padding: const EdgeInsets.only(left: 8.0),
+      child: Text(
+        title,
+        style: Theme.of(context).textTheme.titleLarge?.copyWith(
+          color: Theme.of(context).colorScheme.onSurface,
+          fontWeight: FontWeight.bold,
         ),
-        onPressed: () {
-          context.read<ThemeProvider>().setMainColor(
-            color,
-          ); // Use context.read to update the color
-        },
-        child: const SizedBox.shrink(),
-      );
-    }
-
-    return Column(
-      children: [
-        colorButton(context, Color(0xFFEF5350)),
-        SizedBox(height: 16),
-        colorButton(context, Color(0xFF66BB6A)),
-        SizedBox(height: 16),
-        colorButton(context, Color(0xFF42A5F5)),
-        SizedBox(height: 16),
-        colorButton(context, Color(0xFFFFEB3B)),
-        SizedBox(height: 16),
-        colorButton(context, Color(0xFFAB47BC)),
-        SizedBox(height: 16),
-        colorButton(context, Color(0xFFFF7043)),
-        SizedBox(height: 16),
-        colorButton(context, Color(0xFF26C6DA)),
-      ],
+      ),
     );
   }
+}
+
+// Widget for the theme selection card (Light/Dark/System)
+class _ThemeSelectionCard extends StatelessWidget {
+  final String label;
+  final String assetPath;
+  final bool isSelected;
+  final VoidCallback onTap;
+
+  const _ThemeSelectionCard({
+    required this.label,
+    required this.assetPath,
+    required this.isSelected,
+    required this.onTap,
+  });
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        automaticallyImplyLeading: false,
-        
-      ),
-      body: SingleChildScrollView(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.start,
-          children: [
-            themeSelectionBar(context),
-            SizedBox(height: 16),
-
-            // Title
-            Text(
-              "Accent color",
-              style: TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.bold,
-                color: Theme.of(context).colorScheme.primary,
-              ),
+    final theme = Theme.of(context);
+    return Expanded(
+      child: GestureDetector(
+        onTap: onTap,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          margin: const EdgeInsets.symmetric(horizontal: 4.0),
+          padding: const EdgeInsets.all(4),
+          decoration: BoxDecoration(
+            color:
+                isSelected
+                    ? theme.colorScheme.primary.withOpacity(0.2)
+                    : Colors.transparent,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              width: 3,
+              color:
+                  isSelected ? theme.colorScheme.primary : Colors.transparent,
             ),
+          ),
+          child: Column(
+            children: [
+              ClipRRect(
+                borderRadius: BorderRadius.circular(12),
+                child: Image.asset(assetPath, fit: BoxFit.cover),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                label,
+                style: theme.textTheme.bodyLarge?.copyWith(
+                  fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                  color: theme.colorScheme.onSurface,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
 
-            SizedBox(height: 16),
+// Widget for the circular color swatch
+class _ColorSwatch extends StatelessWidget {
+  final Color color;
+  final bool isSelected;
+  final VoidCallback onTap;
 
-            colorSelectionBar(context),
+  const _ColorSwatch({
+    required this.color,
+    required this.isSelected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        width: 50,
+        height: 50,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: color,
+          border: Border.all(
+            color:
+                isSelected
+                    ? Theme.of(context).colorScheme.onSurface
+                    : Colors.white.withOpacity(0.5),
+            width: isSelected ? 3.0 : 1.5,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.2),
+              blurRadius: 4,
+              offset: const Offset(0, 2),
+            ),
           ],
         ),
+        child:
+            isSelected
+                ? Center(
+                  child: Icon(
+                    Icons.check,
+                    color: Colors.white,
+                  ),
+                )
+                : null,
       ),
     );
   }
