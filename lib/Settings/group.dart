@@ -266,7 +266,7 @@ class GroupSettingsPageState extends State<GroupSettingsPage> {
     return Card(
       elevation: 2,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      color: Theme.of(context).cardColor.withOpacity(0.5),
+      color: Theme.of(context).cardColor.withValues(alpha:0.5),
       child: Padding(
         padding: const EdgeInsets.all(16.0),
         child: Column(
@@ -296,7 +296,7 @@ class GroupSettingsPageState extends State<GroupSettingsPage> {
     return Card(
       elevation: 2,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      color: Theme.of(context).cardColor.withOpacity(0.5),
+      color: Theme.of(context).cardColor.withValues(alpha:0.5),
       child: Padding(
         padding: const EdgeInsets.all(16.0),
         child: Column(
@@ -364,7 +364,7 @@ class GroupSettingsPageState extends State<GroupSettingsPage> {
     return Card(
       elevation: 2,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      color: Theme.of(context).cardColor.withOpacity(0.5),
+      color: Theme.of(context).cardColor.withValues(alpha:0.5),
       child: Padding(
         padding: const EdgeInsets.all(16.0),
         child: Column(
@@ -451,7 +451,7 @@ class _ColorSwatchWithName extends StatelessWidget {
                           width: 3.5,
                         )
                         : Border.all(
-                          color: Colors.white.withOpacity(0.8),
+                          color: Colors.white.withValues(alpha:0.8),
                           width: 1.5,
                         ),
               ),

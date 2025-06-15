@@ -10,8 +10,9 @@ String colorToHexString(Color color) {
 // Converts a HEX string (e.g., #RRGGBB) to a Color object
 Color hexStringToColor(String hexString) {
   final buffer = StringBuffer();
-  if (hexString.length == 6 || hexString.length == 7)
+  if (hexString.length == 6 || hexString.length == 7) {
     buffer.write('ff'); // Add alpha if missing (assume opaque)
+  }
   buffer.write(hexString.replaceFirst('#', ''));
   try {
     return Color(int.parse(buffer.toString(), radix: 16));

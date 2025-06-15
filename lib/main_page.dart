@@ -6,7 +6,7 @@ import 'package:flutter/services.dart' show rootBundle;
 import 'package:shared_preferences/shared_preferences.dart';
 
 // Local imports
-import 'package:crosswords/Farkle/farkle.dart';
+import 'package:crosswords/Farkle/farkle_page.dart';
 import 'package:crosswords/Logic/game_grid.dart';
 import 'package:crosswords/Settings/firebase_service.dart';
 import 'package:crosswords/Settings/group.dart';
@@ -63,7 +63,7 @@ class MainPageState extends State<MainPage> with TickerProviderStateMixin {
     numbers.sort((a, b) => int.parse(a).compareTo(int.parse(b)));
 
     // Fetch all progress data in parallel for efficiency
-    final progressFutures = numbers.map((num) => _getPuzzleProgress(num));
+    final progressFutures = numbers.map((anum) => _getPuzzleProgress(anum));
     final progressResults = await Future.wait(progressFutures);
 
     final progressMap = Map.fromIterables(numbers, progressResults);
@@ -271,13 +271,13 @@ class _PuzzleCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     Icon? progressIcon;
-    Color cardColor = theme.colorScheme.surface.withOpacity(0.5);
+    Color cardColor = theme.colorScheme.surface.withValues(alpha:0.5);
 
     if (progress == "Done") {
-      cardColor = theme.colorScheme.primaryContainer.withOpacity(0.7);
+      cardColor = theme.colorScheme.primaryContainer.withValues(alpha:0.7);
       progressIcon = Icon(Icons.check_circle, color: Colors.green.shade600, size: 20);
     } else if (progress == "In Progress") {
-      cardColor = theme.colorScheme.tertiaryContainer.withOpacity(0.7);
+      cardColor = theme.colorScheme.tertiaryContainer.withValues(alpha:0.7);
       progressIcon = Icon(Icons.edit, color: Colors.orange.shade800, size: 20);
     }
 

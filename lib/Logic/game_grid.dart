@@ -4,13 +4,12 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:math' show Point;
-import 'dart:ui'; // For ImageFilter.blur
+// For ImageFilter.blur
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:shared_preferences/shared_preferences.dart';
 
 // Local imports
-import 'package:crosswords/Logic/active_group_data.dart';
 import 'package:crosswords/Logic/animated_popup.dart';
 import 'package:crosswords/Logic/cell_model.dart';
 import 'package:crosswords/Logic/clue_model.dart';
@@ -70,8 +69,8 @@ class GameGridState extends State<GameGrid> with TickerProviderStateMixin {
   bool _isInGroup = false;
   StreamSubscription? _puzzleSubscription;
   Map<String, String> _userColors = {};
-  Map<String, int> _userScores = {};
-  Map<String, bool> _userActive = {};
+  final Map<String, int> _userScores = {};
+  final Map<String, bool> _userActive = {};
   
   // --- Core Game Logic (Unchanged) ---
 
@@ -139,7 +138,7 @@ class GameGridState extends State<GameGrid> with TickerProviderStateMixin {
     if (_colorsInitialized) return;
     final prefs = await SharedPreferences.getInstance();
     final theme = Theme.of(context);
-    _initialCellColor = theme.colorScheme.surface.withOpacity(0.6);
+    _initialCellColor = theme.colorScheme.surface.withValues(alpha:0.6);
     _errorCellColor = theme.colorScheme.errorContainer;
     _selectionCellColor = theme.colorScheme.tertiaryContainer;
     final savedColorHex = prefs.getString('selectedColor');
@@ -295,7 +294,6 @@ class GameGridState extends State<GameGrid> with TickerProviderStateMixin {
 
   void _applyRemotePuzzleProgress(Map<String, dynamic> progressData, {bool isInitialLoad = false}) {
     bool needsUIUpdate = false;
-    bool puzzleCompletionStatusChanged = false;
     bool remoteReportsDone = progressData['progress'] == 'Done';
     progressData.forEach((key, value) {
       if (key == 'progress') return;
@@ -321,7 +319,6 @@ class GameGridState extends State<GameGrid> with TickerProviderStateMixin {
       if (isNowLocallyComplete || remoteReportsDone) {
         if (!isPuzzleSolved) {
           isPuzzleSolved = true;
-          puzzleCompletionStatusChanged = true;
           needsUIUpdate = true;
           if (isNowLocallyComplete && !remoteReportsDone && _isInGroup) {
             _updateFirebaseProgressMetadata("Done");
@@ -330,7 +327,6 @@ class GameGridState extends State<GameGrid> with TickerProviderStateMixin {
       } else {
         if (isPuzzleSolved) {
           isPuzzleSolved = false;
-          puzzleCompletionStatusChanged = true;
           needsUIUpdate = true;
           if (remoteReportsDone && _isInGroup) {
             _updateFirebaseProgressMetadata("In Progress");

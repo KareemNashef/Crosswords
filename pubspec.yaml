@@ -14,9 +14,11 @@ dependencies:
     sdk: flutter
   flutter_localizations:
     sdk: flutter
+  web_socket_channel: ^2.4.0
   provider: ^6.1.5
   shared_preferences: ^2.5.3
   firebase_auth: ^5.5.3
+  uuid: ^4.3.3
 
 dev_dependencies: 
   flutter_test:
@@ -34,6 +36,3 @@ flutter:
   assets:
     - assets/Puzzles/
     - assets/settings/
-    - assets/background/
-    - assets/borders/
-    - assets/letters/

@@ -87,7 +87,7 @@ class GameGridUI extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 24),
-              if (isInGroup) _buildGroupInfoSection(context),
+              if (isInGroup && !isPuzzleSolved) _buildGroupInfoSection(context),
               const SizedBox(height: 16),
             ],
           ),
@@ -154,10 +154,10 @@ class GameGridUI extends StatelessWidget {
       child: Container(
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(4), // Sharper corners
-          color: Theme.of(context).colorScheme.outline.withOpacity(0.5),
+          color: Theme.of(context).colorScheme.outline.withValues(alpha: 0.5),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.2),
+              color: Colors.black.withValues(alpha: 0.2),
               blurRadius: 10,
               offset: const Offset(0, 4),
             ),
@@ -221,7 +221,7 @@ class GameGridUI extends StatelessWidget {
   Widget _buildGroupInfoSection(BuildContext context) {
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 16),
-      color: Theme.of(context).cardColor.withOpacity(0.5),
+      color: Theme.of(context).cardColor.withValues(alpha: 0.5),
       elevation: 0,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       child: Padding(
@@ -258,7 +258,7 @@ class GameGridUI extends StatelessWidget {
         child: BackdropFilter(
           filter: ImageFilter.blur(sigmaX: 5, sigmaY: 5),
           child: Container(
-            color: Colors.black.withOpacity(0.3),
+            color: Colors.black.withValues(alpha: 0.3),
             child: Center(
               child: Column(
                 mainAxisSize: MainAxisSize.min,
@@ -292,6 +292,9 @@ class GameGridUI extends StatelessWidget {
                     ),
                     onPressed: onBackToMenu,
                   ),
+
+                  const SizedBox(height: 24),
+                  _buildGroupInfoSection(context),
                 ],
               ),
             ),

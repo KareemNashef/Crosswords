@@ -4,172 +4,167 @@ import 'package:shared_preferences/shared_preferences.dart';
 class FirebaseService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
-  // ===== Farkle METHODS =====
+// ===== Farkle METHODS =====
 
-  DocumentReference _getFarkleGameRef(String groupName) {
-    return _firestore.collection('groups').doc(groupName).collection('games').doc('farkle');
-  }
+DocumentReference _getFarkleGameRef(String groupName) {
+  return _firestore.collection('groups').doc(groupName).collection('games').doc('farkle');
+}
 
-  Future<bool> joinFarkleGame(String groupName) async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final username = prefs.getString('userName');
-      if (username == null || username.isEmpty) return false;
+Future<bool> joinFarkleGame(String groupName) async {
+  try {
+    final prefs = await SharedPreferences.getInstance();
+    final username = prefs.getString('userName');
+    if (username == null || username.isEmpty) return false;
 
-      final gameRef = _getFarkleGameRef(groupName);
+    final gameRef = _getFarkleGameRef(groupName);
+
+    await _firestore.runTransaction((transaction) async {
+      final gameDoc = await transaction.get(gameRef);
+
+      Map<String, dynamic> gameData = {};
+      if (gameDoc.exists) {
+        gameData = gameDoc.data() as Map<String, dynamic>;
+      }
+
+      Map<String, int> playerScores = Map<String, int>.from(gameData['playerScores'] ?? {});
+      List<String> playerOrder = List<String>.from(gameData['playerOrder'] ?? []);
       
-      await _firestore.runTransaction((transaction) async {
-        final gameDoc = await transaction.get(gameRef);
-        
-        Map<String, dynamic> gameData = {};
-        if (gameDoc.exists) {
-          gameData = gameDoc.data() as Map<String, dynamic>;
-        }
-        
-        Map<String, int> playerScores = Map<String, int>.from(gameData['playerScores'] ?? {});
-        List<String> playerOrder = List<String>.from(gameData['playerOrder'] ?? []);
-        
-        if (!playerScores.containsKey(username)) {
-          playerScores[username] = 0;
-          playerOrder.add(username);
-          
-          gameData['playerScores'] = playerScores;
-          gameData['playerOrder'] = playerOrder;
-          gameData.putIfAbsent('gameStarted', () => false);
-          gameData.putIfAbsent('currentPlayer', () => playerOrder.first);
-          gameData.putIfAbsent('currentTurnIndex', () => 0);
-          
-          transaction.set(gameRef, gameData);
-        }
-      });
-      return true;
-    } catch (e) {
-      print('Error joining Farkle game: $e');
-      return false;
-    }
-  }
+      // NEW: Handle player dice configurations
+      Map<String, dynamic> playerDiceConfigs = Map<String, dynamic>.from(gameData['playerDiceConfigs'] ?? {});
 
-  Stream<Map<String, dynamic>> listenToFarkleGame(String groupName) {
-    return _getFarkleGameRef(groupName).snapshots().map((snapshot) {
-      return snapshot.exists ? snapshot.data() as Map<String, dynamic> : {};
+      if (!playerScores.containsKey(username)) {
+        playerScores[username] = 0;
+        playerOrder.add(username);
+        
+        // NEW: Set default dice config for new player
+        playerDiceConfigs[username] = List.generate(6, (_) => 'standard');
+
+        gameData['playerScores'] = playerScores;
+        gameData['playerOrder'] = playerOrder;
+        gameData['playerDiceConfigs'] = playerDiceConfigs; // Add to data
+        gameData.putIfAbsent('gameStarted', () => false);
+        gameData.putIfAbsent('currentPlayer', () => playerOrder.first);
+        gameData.putIfAbsent('currentTurnIndex', () => 0);
+
+        transaction.set(gameRef, gameData, SetOptions(merge: true));
+      }
     });
+    return true;
+  } catch (e) {
+    // ignore: avoid_print
+    print('Error joining Farkle game: $e');
+    return false;
   }
+}
 
-  void listenToFarkleGameWithCallback(String groupName, Function(Map<String, dynamic>) onUpdate) {
-    listenToFarkleGame(groupName).listen(onUpdate);
-  }
+// NEW: Method to save a player's dice choices to Firebase
+Future<void> updatePlayerDiceConfig(String groupName, List<String> diceTypeIds) async {
+  final prefs = await SharedPreferences.getInstance();
+  final username = prefs.getString('userName');
+  if (username == null) return;
+  
+  final gameRef = _getFarkleGameRef(groupName);
+  // Use dot notation for efficient update of a nested field
+  await gameRef.update({
+    'playerDiceConfigs.$username': diceTypeIds
+  });
+}
 
-  Future<void> startFarkleGame(String groupName) async {
-    try {
-      await _getFarkleGameRef(groupName).update({
-        'gameStarted': true,
-        // Also reset votes when a new game starts
+Stream<Map<String, dynamic>> listenToFarkleGame(String groupName) {
+  return _getFarkleGameRef(groupName).snapshots().map((snapshot) {
+    return snapshot.exists ? snapshot.data() as Map<String, dynamic> : {};
+  });
+}
+
+void listenToFarkleGameWithCallback(String groupName, Function(Map<String, dynamic>) onUpdate,) {
+  listenToFarkleGame(groupName).listen(onUpdate);
+}
+
+Future<void> startFarkleGame(String groupName) async {
+  await _getFarkleGameRef(groupName).update({
+    'gameStarted': true,
+    'resetVotes': FieldValue.delete(),
+  });
+}
+
+Future<void> updatePlayerScore(String groupName, int scoreToAdd) async {
+  final prefs = await SharedPreferences.getInstance();
+  final username = prefs.getString('userName');
+  if (username == null) return;
+
+  final gameRef = _getFarkleGameRef(groupName);
+
+  await _firestore.runTransaction((transaction) async {
+    final gameDoc = await transaction.get(gameRef);
+    if (gameDoc.exists) {
+      final gameData = gameDoc.data() as Map<String, dynamic>;
+      final playerScores = Map<String, int>.from(gameData['playerScores']);
+      playerScores[username] = (playerScores[username] ?? 0) + scoreToAdd;
+      transaction.update(gameRef, {'playerScores': playerScores});
+    }
+  });
+}
+
+Future<void> updateFarkleTurnState(String groupName, Map<String, dynamic> turnState,) async {
+  await _getFarkleGameRef(groupName).update({'turnState': turnState});
+}
+
+Future<void> endPlayerTurn(String groupName) async {
+  final gameRef = _getFarkleGameRef(groupName);
+
+  await _firestore.runTransaction((transaction) async {
+    final gameDoc = await transaction.get(gameRef);
+    if (gameDoc.exists) {
+      final gameData = gameDoc.data() as Map<String, dynamic>;
+      final playerOrder = List<String>.from(gameData['playerOrder']);
+      final currentTurnIndex = gameData['currentTurnIndex'] ?? 0;
+
+      if (playerOrder.isNotEmpty) {
+        final nextTurnIndex = (currentTurnIndex + 1) % playerOrder.length;
+        final nextPlayer = playerOrder[nextTurnIndex];
+
+        transaction.update(gameRef, {
+          'currentPlayer': nextPlayer,
+          'currentTurnIndex': nextTurnIndex,
+          'turnState': FieldValue.delete(),
+        });
+      }
+    }
+  });
+}
+
+Future<void> voteToResetFarkleGame(String groupName) async {
+  final prefs = await SharedPreferences.getInstance();
+  final username = prefs.getString('userName');
+  if (username == null) return;
+
+  final gameRef = _getFarkleGameRef(groupName);
+
+  await _firestore.runTransaction((transaction) async {
+    final gameDoc = await transaction.get(gameRef);
+    if (!gameDoc.exists) return;
+
+    final gameData = gameDoc.data() as Map<String, dynamic>;
+    final playerOrder = List<String>.from(gameData['playerOrder'] ?? []);
+    List<String> resetVotes = List<String>.from(gameData['resetVotes'] ?? []);
+
+    if (!resetVotes.contains(username)) {
+      resetVotes.add(username);
+    }
+
+    if (playerOrder.isNotEmpty && resetVotes.length >= playerOrder.length) {
+      Map<String, int> playerScores = Map<String, int>.from(gameData['playerScores']);
+      playerScores.updateAll((key, value) => 0);
+
+      transaction.update(gameRef, {
+        'playerScores': playerScores,
         'resetVotes': FieldValue.delete(),
       });
-    } catch (e) {
-      print('Error starting Farkle game: $e');
+    } else {
+      transaction.update(gameRef, {'resetVotes': resetVotes});
     }
-  }
-
-  Future<void> updatePlayerScore(String groupName, int scoreToAdd) async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final username = prefs.getString('userName');
-      if (username == null) return;
-
-      final gameRef = _getFarkleGameRef(groupName);
-      
-      await _firestore.runTransaction((transaction) async {
-        final gameDoc = await transaction.get(gameRef);
-        if (gameDoc.exists) {
-          final gameData = gameDoc.data() as Map<String, dynamic>;
-          final playerScores = Map<String, int>.from(gameData['playerScores']);
-          playerScores[username] = (playerScores[username] ?? 0) + scoreToAdd;
-          transaction.update(gameRef, {'playerScores': playerScores});
-        }
-      });
-    } catch (e) {
-      print('Error updating player score: $e');
-    }
-  }
-
-  Future<void> updateFarkleTurnState(String groupName, Map<String, dynamic> turnState) async {
-    try {
-      await _getFarkleGameRef(groupName).update({'turnState': turnState});
-    } catch (e) {
-      print('Error updating Farkle turn state: $e');
-    }
-  }
-
-  Future<void> endPlayerTurn(String groupName) async {
-    try {
-      final gameRef = _getFarkleGameRef(groupName);
-      
-      await _firestore.runTransaction((transaction) async {
-        final gameDoc = await transaction.get(gameRef);
-        if (gameDoc.exists) {
-          final gameData = gameDoc.data() as Map<String, dynamic>;
-          final playerOrder = List<String>.from(gameData['playerOrder']);
-          final currentTurnIndex = gameData['currentTurnIndex'] ?? 0;
-          
-          if (playerOrder.isNotEmpty) {
-            final nextTurnIndex = (currentTurnIndex + 1) % playerOrder.length;
-            final nextPlayer = playerOrder[nextTurnIndex];
-            
-            transaction.update(gameRef, {
-              'currentPlayer': nextPlayer,
-              'currentTurnIndex': nextTurnIndex,
-              'turnState': FieldValue.delete(),
-            });
-          }
-        }
-      });
-    } catch (e) {
-      print('Error ending player turn: $e');
-    }
-  }
-
-  /// **NEW**: Adds the current user's vote to reset the game.
-  Future<void> voteToResetFarkleGame(String groupName) async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final username = prefs.getString('userName');
-      if (username == null) return;
-      
-      final gameRef = _getFarkleGameRef(groupName);
-
-      await _firestore.runTransaction((transaction) async {
-        final gameDoc = await transaction.get(gameRef);
-        if (!gameDoc.exists) return;
-
-        final gameData = gameDoc.data() as Map<String, dynamic>;
-        final playerOrder = List<String>.from(gameData['playerOrder'] ?? []);
-        List<String> resetVotes = List<String>.from(gameData['resetVotes'] ?? []);
-
-        if (!resetVotes.contains(username)) {
-          resetVotes.add(username);
-        }
-
-        // Check if all players have voted
-        if (playerOrder.isNotEmpty && resetVotes.length == playerOrder.length) {
-          // All players voted, reset the scores
-          Map<String, int> playerScores = Map<String, int>.from(gameData['playerScores']);
-          playerScores.updateAll((key, value) => 0);
-
-          transaction.update(gameRef, {
-            'playerScores': playerScores,
-            'resetVotes': FieldValue.delete(), // Clear votes after reset
-          });
-        } else {
-          // Not all players voted yet, just update the votes list
-          transaction.update(gameRef, {'resetVotes': resetVotes});
-        }
-      });
-    } catch(e) {
-      print("Error voting to reset: $e");
-    }
-  }
-
+  });
+}
 
   // ===== GROUP METHODS =====
 

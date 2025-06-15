@@ -105,7 +105,7 @@ class _UserStatusCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final cardColor = theme.cardColor.withOpacity(0.4);
+    final cardColor = theme.cardColor.withValues(alpha:0.4);
     final onCardColor = getContrastColor(cardColor);
 
     return ClipRRect(
@@ -118,7 +118,7 @@ class _UserStatusCard extends StatelessWidget {
           decoration: BoxDecoration(
             color: cardColor,
             borderRadius: BorderRadius.circular(12.0),
-            border: Border.all(color: Colors.white.withOpacity(0.1)),
+            border: Border.all(color: Colors.white.withValues(alpha:0.1)),
           ),
           child: Row(
             mainAxisSize:
@@ -150,7 +150,7 @@ class _UserStatusCard extends StatelessWidget {
                   Text(
                     '$score',
                     style: TextStyle(
-                      color: onCardColor.withOpacity(0.8),
+                      color: onCardColor.withValues(alpha:0.8),
                       fontSize: 12,
                     ),
                   ),
@@ -176,7 +176,7 @@ class _UserStatusCard extends StatelessWidget {
                         color: Colors.greenAccent,
                         boxShadow: [
                           BoxShadow(
-                            color: Colors.greenAccent.withOpacity(
+                            color: Colors.greenAccent.withValues(alpha:
                               0.7 * easeAnimation.value,
                             ),
                             blurRadius: 8.0 * easeAnimation.value,

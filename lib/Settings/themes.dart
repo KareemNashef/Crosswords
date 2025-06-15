@@ -101,7 +101,7 @@ class ThemeSettingsPage extends StatelessWidget {
 
               // Accent Color Section
               Card(
-                color: Theme.of(context).cardColor.withOpacity(0.5),
+                color: Theme.of(context).cardColor.withValues(alpha:0.5),
                 elevation: 0,
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(12),
@@ -174,7 +174,7 @@ class _ThemeSelectionCard extends StatelessWidget {
           decoration: BoxDecoration(
             color:
                 isSelected
-                    ? theme.colorScheme.primary.withOpacity(0.2)
+                    ? theme.colorScheme.primary.withValues(alpha:0.2)
                     : Colors.transparent,
             borderRadius: BorderRadius.circular(16),
             border: Border.all(
@@ -232,12 +232,12 @@ class _ColorSwatch extends StatelessWidget {
             color:
                 isSelected
                     ? Theme.of(context).colorScheme.onSurface
-                    : Colors.white.withOpacity(0.5),
+                    : Colors.white.withValues(alpha:0.5),
             width: isSelected ? 3.0 : 1.5,
           ),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.2),
+              color: Colors.black.withValues(alpha:0.2),
               blurRadius: 4,
               offset: const Offset(0, 2),
             ),

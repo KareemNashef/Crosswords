@@ -222,7 +222,7 @@ class AnimatedPopupState extends State<AnimatedPopup> {
       return;
     }
     if (char == widget.cellsToAnimate[index].solutionChar) {
-      final madeBy = widget.cellsToAnimate[index].madeBy?.trim() ?? '';
+      final madeBy = widget.cellsToAnimate[index].madeBy.trim();
       final colorHex = _userColors[madeBy];
       if (madeBy.isNotEmpty && colorHex != null) {
         _currentCellColors[index] = Color(
@@ -286,7 +286,7 @@ class AnimatedPopupState extends State<AnimatedPopup> {
             sigmaY: blurAnimation.value,
           ),
           child: Container(
-            color: Colors.black.withOpacity(
+            color: Colors.black.withValues(alpha:
               0.3 * widget.animationController.value,
             ),
           ),
@@ -359,7 +359,7 @@ class AnimatedPopupState extends State<AnimatedPopup> {
   Widget _buildClueText(BuildContext context) {
     return Card(
       elevation: 4 * widget.animationController.value,
-      color: Theme.of(context).colorScheme.surface.withOpacity(0.85),
+      color: Theme.of(context).colorScheme.surface.withValues(alpha:0.85),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
@@ -387,7 +387,7 @@ class AnimatedPopupState extends State<AnimatedPopup> {
           foregroundColor: Theme.of(context).colorScheme.onSurface,
           backgroundColor: Theme.of(
             context,
-          ).colorScheme.surface.withOpacity(0.8),
+          ).colorScheme.surface.withValues(alpha:0.8),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
         ),
         onPressed: () {
@@ -413,8 +413,8 @@ class AnimatedPopupState extends State<AnimatedPopup> {
             BoxShadow(
               color:
                   hasFocus
-                      ? Theme.of(context).primaryColor.withOpacity(0.7)
-                      : Colors.black.withOpacity(
+                      ? Theme.of(context).primaryColor.withValues(alpha:0.7)
+                      : Colors.black.withValues(alpha:
                         0.3 * widget.animationController.value,
                       ),
               blurRadius: hasFocus ? 8 : 5 * widget.animationController.value,
