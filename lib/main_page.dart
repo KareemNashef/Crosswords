@@ -1,6 +1,7 @@
 // Flutter imports
 import 'dart:async';
 import 'dart:convert';
+import 'package:crosswords/Utilities/color_utils.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:shared_preferences/shared_preferences.dart';
@@ -14,6 +15,8 @@ import 'package:crosswords/Settings/themes.dart';
 
 // ========== Main Page ========== //
 
+enum ProgressFilter { all, notStarted, inProgress, completed }
+
 class MainPage extends StatefulWidget {
   const MainPage({super.key});
 
@@ -25,11 +28,19 @@ class MainPageState extends State<MainPage> with TickerProviderStateMixin {
   // ===== Class variables =====
   late final FirebaseService _firebaseService;
   late final AnimationController _animationController;
+  late final AnimationController _searchAnimationController;
+  late final TextEditingController _searchController;
 
   // State
-  List<String>? _puzzleNumbers;
+  List<String>? _allPuzzleNumbers;
+  List<String>? _filteredPuzzleNumbers;
   Map<String, String?>? _puzzleProgress;
   bool _isLoading = true;
+
+  // Search and filter state
+  String _searchQuery = '';
+  ProgressFilter _currentFilter = ProgressFilter.all;
+  bool _isSearchActive = false;
 
   // ===== Lifecycle Methods =====
 
@@ -37,9 +48,14 @@ class MainPageState extends State<MainPage> with TickerProviderStateMixin {
   void initState() {
     super.initState();
     _firebaseService = FirebaseService();
+    _searchController = TextEditingController();
     _animationController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 800),
+      duration: const Duration(milliseconds: 1000),
+    );
+    _searchAnimationController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 300),
     );
     _loadData();
   }
@@ -47,34 +63,32 @@ class MainPageState extends State<MainPage> with TickerProviderStateMixin {
   @override
   void dispose() {
     _animationController.dispose();
+    _searchAnimationController.dispose();
+    _searchController.dispose();
     super.dispose();
   }
 
   // ===== Data Loading =====
 
   Future<void> _loadData() async {
-    // Show loading indicator
     if (mounted) {
       setState(() => _isLoading = true);
     }
 
     final numbers = await _loadPuzzleNumbers();
-    // Sort puzzles numerically instead of lexicographically
     numbers.sort((a, b) => int.parse(a).compareTo(int.parse(b)));
 
-    // Fetch all progress data in parallel for efficiency
     final progressFutures = numbers.map((anum) => _getPuzzleProgress(anum));
     final progressResults = await Future.wait(progressFutures);
-
     final progressMap = Map.fromIterables(numbers, progressResults);
 
     if (mounted) {
       setState(() {
-        _puzzleNumbers = numbers;
+        _allPuzzleNumbers = numbers;
         _puzzleProgress = progressMap;
         _isLoading = false;
       });
-      // Start the animations once the data is ready
+      _applyFilters();
       _animationController.forward(from: 0.0);
     }
   }
@@ -82,13 +96,14 @@ class MainPageState extends State<MainPage> with TickerProviderStateMixin {
   Future<List<String>> _loadPuzzleNumbers() async {
     final manifest = await rootBundle.loadString('AssetManifest.json');
     final Map<String, dynamic> manifestMap = json.decode(manifest);
-    final puzzleFiles = manifestMap.keys
-        .where(
-          (path) =>
-              path.startsWith('assets/Puzzles/puzzle_') &&
-              path.endsWith('_clues.json'),
-        )
-        .toList();
+    final puzzleFiles =
+        manifestMap.keys
+            .where(
+              (path) =>
+                  path.startsWith('assets/Puzzles/puzzle_') &&
+                  path.endsWith('_clues.json'),
+            )
+            .toList();
 
     return puzzleFiles.map((path) => path.split('_')[1]).toList();
   }
@@ -98,7 +113,6 @@ class MainPageState extends State<MainPage> with TickerProviderStateMixin {
 
     final groupName = prefs.getString('groupName');
     if (groupName == null) {
-      // Get local progress
       final savedProgress = prefs.getString('puzzle_progress_$puzzleNumber');
       if (savedProgress != null) {
         final progressMap = jsonDecode(savedProgress);
@@ -107,10 +121,171 @@ class MainPageState extends State<MainPage> with TickerProviderStateMixin {
       return null;
     }
 
-    // Otherwise get from Firebase
-    return _firebaseService.getPuzzleProgress(
-      groupName,
-      puzzleNumber,
+    return _firebaseService.getPuzzleProgress(groupName, puzzleNumber);
+  }
+
+  // ===== Search and Filter Logic =====
+
+  void _applyFilters() {
+    if (_allPuzzleNumbers == null || _puzzleProgress == null) return;
+
+    List<String> filtered = List.from(_allPuzzleNumbers!);
+
+    // Apply search filter
+    if (_searchQuery.isNotEmpty) {
+      filtered =
+          filtered.where((puzzleNumber) {
+            return puzzleNumber.contains(_searchQuery);
+          }).toList();
+    }
+
+    // Apply progress filter
+    switch (_currentFilter) {
+      case ProgressFilter.notStarted:
+        filtered =
+            filtered.where((puzzleNumber) {
+              return _puzzleProgress![puzzleNumber] == null;
+            }).toList();
+        break;
+      case ProgressFilter.inProgress:
+        filtered =
+            filtered.where((puzzleNumber) {
+              return _puzzleProgress![puzzleNumber] == "In Progress";
+            }).toList();
+        break;
+      case ProgressFilter.completed:
+        filtered =
+            filtered.where((puzzleNumber) {
+              return _puzzleProgress![puzzleNumber] == "Done";
+            }).toList();
+        break;
+      case ProgressFilter.all:
+        break;
+    }
+
+    setState(() {
+      _filteredPuzzleNumbers = filtered;
+    });
+  }
+
+  void _onSearchChanged(String query) {
+    setState(() {
+      _searchQuery = query;
+    });
+    _applyFilters();
+  }
+
+  void _toggleSearch() {
+    setState(() {
+      _isSearchActive = !_isSearchActive;
+      if (!_isSearchActive) {
+        _searchController.clear();
+        _searchQuery = '';
+        _applyFilters();
+        _searchAnimationController.reverse();
+      } else {
+        _searchAnimationController.forward();
+      }
+    });
+  }
+
+  void _showFilterBottomSheet() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder:
+          (context) => Container(
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.surface,
+              borderRadius: const BorderRadius.vertical(
+                top: Radius.circular(20),
+              ),
+            ),
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(
+                  child: Container(
+                    width: 40,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 20),
+                Text(
+                  'تصفية الألغاز', // "Filter Puzzles"
+                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 20),
+                _buildFilterOption(
+                  'جميع الألغاز',
+                  Icons.grid_view,
+                  ProgressFilter.all,
+                ),
+                _buildFilterOption(
+                  'لم تبدأ',
+                  Icons.play_circle_outline,
+                  ProgressFilter.notStarted,
+                ),
+                _buildFilterOption(
+                  'قيد التنفيذ',
+                  Icons.edit_outlined,
+                  ProgressFilter.inProgress,
+                ),
+                _buildFilterOption(
+                  'مكتمل',
+                  Icons.check_circle_outline,
+                  ProgressFilter.completed,
+                ),
+                const SizedBox(height: 20),
+              ],
+            ),
+          ),
+    );
+  }
+
+  Widget _buildFilterOption(
+    String title,
+    IconData icon,
+    ProgressFilter filter,
+  ) {
+    final isSelected = _currentFilter == filter;
+    return ListTile(
+      leading: Icon(
+        icon,
+        color:
+            isSelected
+                ? Theme.of(context).colorScheme.primary
+                : Theme.of(context).colorScheme.onSurfaceVariant,
+      ),
+      title: Text(
+        title,
+        style: TextStyle(
+          color:
+              isSelected
+                  ? Theme.of(context).colorScheme.primary
+                  : Theme.of(context).colorScheme.onSurface,
+          fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+        ),
+      ),
+      trailing:
+          isSelected
+              ? Icon(Icons.check, color: Theme.of(context).colorScheme.primary)
+              : null,
+      onTap: () {
+        setState(() {
+          _currentFilter = filter;
+        });
+        _applyFilters();
+        Navigator.pop(context);
+      },
     );
   }
 
@@ -121,8 +296,87 @@ class MainPageState extends State<MainPage> with TickerProviderStateMixin {
       MaterialPageRoute(
         builder: (context) => GameGrid(puzzleNumber: puzzleNumber),
       ),
-      // When we return from a puzzle, reload data to show updated progress
     ).then((_) => _loadData());
+  }
+
+  void _showMoreOptions() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder:
+          (context) => Container(
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.surface,
+              borderRadius: const BorderRadius.vertical(
+                top: Radius.circular(20),
+              ),
+            ),
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Center(
+                  child: Container(
+                    width: 40,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 20),
+                ListTile(
+                  leading: Icon(
+                    Icons.palette_outlined,
+                    color: Theme.of(context).colorScheme.primary,
+                  ),
+                  title: const Text('الثيم'),
+                  onTap: () {
+                    Navigator.pop(context);
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => const ThemeSettingsPage(),
+                      ),
+                    );
+                  },
+                ),
+                ListTile(
+                  leading: Icon(
+                    Icons.casino_outlined,
+                    color: Theme.of(context).colorScheme.primary,
+                  ),
+                  title: const Text('لعبة فاركل'),
+                  onTap: () {
+                    Navigator.pop(context);
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (context) => FarklePage()),
+                    );
+                  },
+                ),
+                ListTile(
+                  leading: Icon(
+                    Icons.group_outlined,
+                    color: Theme.of(context).colorScheme.primary,
+                  ),
+                  title: const Text('إعدادات المجموعة'),
+                  onTap: () {
+                    Navigator.pop(context);
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => const GroupSettingsPage(),
+                      ),
+                    );
+                  },
+                ),
+                const SizedBox(height: 20),
+              ],
+            ),
+          ),
+    );
   }
 
   // ===== Build Method =====
@@ -130,133 +384,276 @@ class MainPageState extends State<MainPage> with TickerProviderStateMixin {
   @override
   Widget build(BuildContext context) {
     return Container(
-      // A beautiful gradient background that covers the whole page
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            Theme.of(context).colorScheme.primaryContainer,
-            Theme.of(context).colorScheme.secondaryContainer,
-            Theme.of(context).colorScheme.tertiaryContainer,
-          ],
-        ),
-      ),
+      decoration: backgroundGradient(context),
       child: Scaffold(
         backgroundColor: Colors.transparent,
-        appBar: AppBar(
-          backgroundColor: Colors.transparent,
-          elevation: 0,
-          toolbarHeight: 80,
-          title: Text(
-            "كلمات متقاطعة",
-            style: TextStyle(
-              color: Theme.of(context).colorScheme.primary,
-              fontWeight: FontWeight.bold,
-              fontSize: 28,
-            ),
+        body: SafeArea(
+          child: Column(
+            children: [
+              _buildHeader(),
+              if (_isSearchActive) _buildSearchBar(),
+              Expanded(
+                child: _isLoading ? _buildLoadingState() : _buildPuzzleGrid(),
+              ),
+            ],
           ),
-          centerTitle: true,
-          leading: IconButton(
-            icon: Icon(
-              Icons.palette_outlined,
-              color: Theme.of(context).colorScheme.primary,
-              size: 28,
-            ),
-            tooltip: 'Themes',
-            onPressed: () => Navigator.push(
-              context,
-              MaterialPageRoute(builder: (context) => const ThemeSettingsPage()),
-            ),
-          ),
-          actions: [
-            IconButton(
-              icon: Icon(
-                Icons.casino_outlined,
-                color: Theme.of(context).colorScheme.primary,
-                size: 28,
-              ),
-              tooltip: 'Farkle Game',
-              onPressed: () => Navigator.push(
-                context,
-                MaterialPageRoute(builder: (context) => FarklePage()),
-              ),
-            ),
-            IconButton(
-              icon: Icon(
-                Icons.group_outlined,
-                color: Theme.of(context).colorScheme.primary,
-                size: 28,
-              ),
-              tooltip: 'Group Settings',
-              onPressed: () => Navigator.push(
-                context,
-                MaterialPageRoute(builder: (context) => const GroupSettingsPage()),
-              ),
-            ),
-            const SizedBox(width: 8), // Padding
-          ],
         ),
-        body: _isLoading
-            ? Center(
-                child: CircularProgressIndicator(
-                  color: Theme.of(context).colorScheme.primary,
+      ),
+    );
+  }
+
+  Widget _buildHeader() {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(20, 20, 20, 10),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'مرحباً بك', // "Welcome"
+                  style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
                 ),
-              )
-            : _buildPuzzleGrid(),
+                const SizedBox(height: 4),
+                Text(
+                  'كلمات متقاطعة',
+                  style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                    fontWeight: FontWeight.bold,
+                    color: Theme.of(context).colorScheme.onSurface,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          _buildHeaderButton(
+            icon: Icons.search,
+            onPressed: _toggleSearch,
+            isActive: _isSearchActive,
+          ),
+          const SizedBox(width: 12),
+          _buildHeaderButton(
+            icon: Icons.tune,
+            onPressed: _showFilterBottomSheet,
+            isActive: _currentFilter != ProgressFilter.all,
+          ),
+          const SizedBox(width: 12),
+          _buildHeaderButton(
+            icon: Icons.more_vert,
+            onPressed: _showMoreOptions,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildHeaderButton({
+    required IconData icon,
+    required VoidCallback onPressed,
+    bool isActive = false,
+  }) {
+    return Container(
+      decoration: BoxDecoration(
+        color:
+            isActive
+                ? Theme.of(context).colorScheme.primaryContainer
+                : Theme.of(context).colorScheme.surface.withValues(alpha: 0.7),
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.1),
+            blurRadius: 4,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: IconButton(
+        icon: Icon(
+          icon,
+          color:
+              isActive
+                  ? Theme.of(context).colorScheme.onPrimaryContainer
+                  : Theme.of(context).colorScheme.onSurface,
+        ),
+        onPressed: onPressed,
+      ),
+    );
+  }
+
+  Widget _buildSearchBar() {
+    return AnimatedBuilder(
+      animation: _searchAnimationController,
+      builder: (context, child) {
+        return Container(
+          height: 60 * _searchAnimationController.value,
+          margin: const EdgeInsets.symmetric(horizontal: 20),
+          child: Opacity(
+            opacity: _searchAnimationController.value,
+            child: Container(
+              decoration: BoxDecoration(
+                color: Theme.of(
+                  context,
+                ).colorScheme.surface.withValues(alpha: 0.9),
+                borderRadius: BorderRadius.circular(16),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.1),
+                    blurRadius: 8,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
+              ),
+              child: TextField(
+                controller: _searchController,
+                onChanged: _onSearchChanged,
+                autofocus: true,
+                decoration: InputDecoration(
+                  hintText: 'ابحث عن لغز...',
+                  prefixIcon: Icon(
+                    Icons.search,
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
+                  suffixIcon:
+                      _searchQuery.isNotEmpty
+                          ? IconButton(
+                            icon: Icon(
+                              Icons.clear,
+                              color:
+                                  Theme.of(
+                                    context,
+                                  ).colorScheme.onSurfaceVariant,
+                            ),
+                            onPressed: () {
+                              _searchController.clear();
+                              _onSearchChanged('');
+                            },
+                          )
+                          : null,
+                  border: InputBorder.none,
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 20,
+                    vertical: 16,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildLoadingState() {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          CircularProgressIndicator(
+            color: Theme.of(context).colorScheme.primary,
+          ),
+          const SizedBox(height: 16),
+          Text(
+            'جاري تحميل الألغاز...',
+            style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
+          ),
+        ],
       ),
     );
   }
 
   Widget _buildPuzzleGrid() {
+    final puzzlesToShow = _filteredPuzzleNumbers ?? [];
+
+    if (puzzlesToShow.isEmpty) {
+      return _buildEmptyState();
+    }
+
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16.0, 0, 16.0, 16.0),
+      padding: const EdgeInsets.all(20),
       child: GridView.builder(
-        itemCount: _puzzleNumbers?.length ?? 0,
+        itemCount: puzzlesToShow.length,
         gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
           crossAxisCount: 3,
           mainAxisSpacing: 16,
           crossAxisSpacing: 16,
-          childAspectRatio: 0.9,
+          childAspectRatio: 1.0,
         ),
         itemBuilder: (context, index) {
-          final puzzleNumber = _puzzleNumbers![index];
+          final puzzleNumber = puzzlesToShow[index];
           final progress = _puzzleProgress![puzzleNumber];
 
-          // Create a staggered animation for each card
-          final interval = Interval(
-            (0.1 * index) / (_puzzleNumbers!.length * 0.1),
-            1.0,
-            curve: Curves.easeOutCubic,
+          // Staggered animation
+          final delay = (index * 0.1).clamp(0.0, 1.0);
+          final animation = Tween<double>(begin: 0.0, end: 1.0).animate(
+            CurvedAnimation(
+              parent: _animationController,
+              curve: Interval(delay, 1.0, curve: Curves.easeOutBack),
+            ),
           );
-          final animation = _animationController
-              .drive(Tween<double>(begin: 0.0, end: 1.0).chain(CurveTween(curve: interval)));
 
           return AnimatedBuilder(
             animation: animation,
             builder: (context, child) {
+              final animValue = animation.value.clamp(0.0, 1.0);
               return Transform.scale(
-                scale: animation.value,
+                scale: animValue,
                 child: Opacity(
-                  opacity: animation.value,
-                  child: child,
+                  opacity: animValue,
+                  child: _PuzzleCard(
+                    puzzleNumber: puzzleNumber,
+                    progress: progress,
+                    onTap: () => _navigateToPuzzle(puzzleNumber),
+                  ),
                 ),
               );
             },
-            child: _PuzzleCard(
-              puzzleNumber: puzzleNumber,
-              progress: progress,
-              onTap: () => _navigateToPuzzle(puzzleNumber),
-            ),
           );
         },
       ),
     );
   }
+
+  Widget _buildEmptyState() {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(24),
+            decoration: BoxDecoration(
+              color: Theme.of(
+                context,
+              ).colorScheme.surfaceVariant.withValues(alpha: 0.5),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(
+              _searchQuery.isNotEmpty
+                  ? Icons.search_off
+                  : Icons.filter_list_off,
+              size: 48,
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
+          ),
+          const SizedBox(height: 16),
+          Text(
+            _searchQuery.isNotEmpty
+                ? 'لا توجد ألغاز تطابق البحث'
+                : 'لا توجد ألغاز في هذه القائمة',
+            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
-// A new widget for the puzzle selection card for better code organization
-class _PuzzleCard extends StatelessWidget {
+class _PuzzleCard extends StatefulWidget {
   final String puzzleNumber;
   final String? progress;
   final VoidCallback onTap;
@@ -268,60 +665,126 @@ class _PuzzleCard extends StatelessWidget {
   });
 
   @override
+  State<_PuzzleCard> createState() => _PuzzleCardState();
+}
+
+class _PuzzleCardState extends State<_PuzzleCard>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _hoverController;
+  bool _isPressed = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _hoverController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 200),
+    );
+  }
+
+  @override
+  void dispose() {
+    _hoverController.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    Icon? progressIcon;
-    Color cardColor = theme.colorScheme.surface.withValues(alpha:0.5);
 
-    if (progress == "Done") {
-      cardColor = theme.colorScheme.primaryContainer.withValues(alpha:0.7);
-      progressIcon = Icon(Icons.check_circle, color: Colors.green.shade600, size: 20);
-    } else if (progress == "In Progress") {
-      cardColor = theme.colorScheme.tertiaryContainer.withValues(alpha:0.7);
-      progressIcon = Icon(Icons.edit, color: Colors.orange.shade800, size: 20);
+    Color cardColor;
+    Color textColor;
+    IconData? statusIcon;
+    Color? iconColor;
+
+    switch (widget.progress) {
+      case "Done":
+        cardColor = theme.colorScheme.primaryContainer;
+        textColor = theme.colorScheme.onPrimaryContainer;
+        statusIcon = Icons.check_circle;
+        iconColor = Colors.green.shade600;
+        break;
+      case "In Progress":
+        cardColor = theme.colorScheme.tertiaryContainer;
+        textColor = theme.colorScheme.onTertiaryContainer;
+        statusIcon = Icons.edit_outlined;
+        iconColor = Colors.orange.shade700;
+        break;
+      default:
+        cardColor = theme.colorScheme.surface;
+        textColor = theme.colorScheme.onSurface;
+        statusIcon = Icons.play_circle_outline;
+        iconColor = theme.colorScheme.primary;
     }
 
-    return Card(
-      color: cardColor,
-      elevation: 4.0,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      clipBehavior: Clip.antiAlias, // Ensures the InkWell ripple stays within the rounded corners
-      child: InkWell(
-        onTap: onTap,
-        child: Stack(
-          children: [
-            // Main content
-            Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
+    return AnimatedBuilder(
+      animation: _hoverController,
+      builder: (context, child) {
+        final scale = 1.0 - (_hoverController.value * 0.05);
+        return Transform.scale(
+          scale: _isPressed ? 0.95 : scale,
+          child: GestureDetector(
+            onTapDown: (_) => setState(() => _isPressed = true),
+            onTapUp: (_) => setState(() => _isPressed = false),
+            onTapCancel: () => setState(() => _isPressed = false),
+            onTap: widget.onTap,
+            child: Container(
+              decoration: BoxDecoration(
+                color: cardColor,
+                borderRadius: BorderRadius.circular(20),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.1),
+                    blurRadius: 8,
+                    offset: const Offset(0, 4),
+                  ),
+                ],
+              ),
+              child: Stack(
                 children: [
-                  Text(
-                    'لغز', // "Puzzle"
-                    style: theme.textTheme.bodyMedium?.copyWith(
-                      color: theme.colorScheme.onSurfaceVariant,
+                  // Main content
+                  Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        if (statusIcon != null)
+                          Icon(statusIcon, color: iconColor, size: 24),
+                        const SizedBox(height: 8),
+                        Text(
+                          'لغز',
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: textColor.withValues(alpha: 0.7),
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          widget.puzzleNumber,
+                          style: theme.textTheme.headlineMedium?.copyWith(
+                            fontWeight: FontWeight.bold,
+                            color: textColor,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
-                  const SizedBox(height: 4),
-                  Text(
-                    puzzleNumber,
-                    style: theme.textTheme.headlineMedium?.copyWith(
-                      fontWeight: FontWeight.bold,
-                      color: theme.colorScheme.onSurface,
+                  // Ripple effect overlay
+                  Positioned.fill(
+                    child: Material(
+                      color: Colors.transparent,
+                      child: InkWell(
+                        borderRadius: BorderRadius.circular(20),
+                        onTap: widget.onTap,
+                        splashColor: textColor.withValues(alpha: 0.1),
+                        highlightColor: textColor.withValues(alpha: 0.05),
+                      ),
                     ),
                   ),
                 ],
               ),
             ),
-            // Progress icon indicator
-            if (progressIcon != null)
-              Positioned(
-                top: 8,
-                right: 8,
-                child: progressIcon,
-              ),
-          ],
-        ),
-      ),
+          ),
+        );
+      },
     );
   }
 }

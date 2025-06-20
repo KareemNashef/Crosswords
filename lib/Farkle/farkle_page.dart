@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:math';
+import 'package:audioplayers/audioplayers.dart';
 
 import 'package:crosswords/Settings/firebase_service.dart';
 import 'logic/dice_model.dart';
@@ -50,7 +51,7 @@ class _FarklePageState extends State<FarklePage> with TickerProviderStateMixin {
     super.initState();
     _firebaseService = FirebaseService();
     _initialize();
-    
+
     _rollController = AnimationController(
       duration: const Duration(milliseconds: 1500),
       vsync: this,
@@ -94,6 +95,20 @@ class _FarklePageState extends State<FarklePage> with TickerProviderStateMixin {
     super.dispose();
   }
 
+  final _player = AudioPlayer();
+  final _rand = Random();
+
+  void playRollSound() {
+    String path = 'settings/roll.mp3';
+    int chance = _rand.nextInt(100);
+
+    if (chance == 0) {
+      path = _rand.nextBool() ? 'settings/olive.mp3' : 'settings/lemon.mp3';
+    }
+
+    _player.play(AssetSource(path));
+  }
+
   void joinGame() async {
     if (groupName != null) {
       bool joined = await _firebaseService.joinFarkleGame(groupName!);
@@ -109,32 +124,42 @@ class _FarklePageState extends State<FarklePage> with TickerProviderStateMixin {
       if (!mounted) return;
       final newIsMyTurn = (gameData['currentPlayer'] == localUsername);
       final newCurrentPlayer = gameData['currentPlayer'] as String?;
-      
+
       if (currentPlayer != newCurrentPlayer) {
         _loadDiceForPlayer(newCurrentPlayer, gameData);
       }
-      
+
       setState(() {
         playerScores = Map<String, int>.from(gameData['playerScores'] ?? {});
         currentPlayer = newCurrentPlayer;
         gameStarted = gameData['gameStarted'] ?? false;
         resetVotes = List<String>.from(gameData['resetVotes'] ?? []);
-        
-        final turnState = gameData.containsKey('turnState') ? Map<String, dynamic>.from(gameData['turnState']) : null;
-        
-        if (newIsMyTurn && !isMyTurn) { 
+
+        final turnState =
+            gameData.containsKey('turnState')
+                ? Map<String, dynamic>.from(gameData['turnState'])
+                : null;
+
+        if (newIsMyTurn && !isMyTurn) {
           _resetForNewTurn();
         }
         isMyTurn = newIsMyTurn;
 
         if (turnState != null) {
-          final diceValues = List<int>.from(turnState['diceValues'] ?? List.generate(6, (_) => 1));
-          for(int i = 0; i < 6; i++) { dice[i].value = diceValues[i]; }
-          diceKept = List<bool>.from(turnState['diceKept'] ?? List.generate(6, (_) => false));
+          final diceValues = List<int>.from(
+            turnState['diceValues'] ?? List.generate(6, (_) => 1),
+          );
+          for (int i = 0; i < 6; i++) {
+            dice[i].value = diceValues[i];
+          }
+          diceKept = List<bool>.from(
+            turnState['diceKept'] ?? List.generate(6, (_) => false),
+          );
           currentTurnScore = turnState['currentTurnScore'] ?? 0;
           final bool remoteRolling = turnState['isRolling'] ?? false;
           if (remoteRolling && !isRolling) {
             isRolling = true;
+            playRollSound();
             _rollController.forward(from: 0);
           } else if (!remoteRolling && isRolling && !isMyTurn) {
             isRolling = false;
@@ -146,8 +171,10 @@ class _FarklePageState extends State<FarklePage> with TickerProviderStateMixin {
 
   void _loadDiceForPlayer(String? playerName, Map<String, dynamic> gameData) {
     if (playerName == null) return;
-    
-    final configs = Map<String, dynamic>.from(gameData['playerDiceConfigs'] ?? {});
+
+    final configs = Map<String, dynamic>.from(
+      gameData['playerDiceConfigs'] ?? {},
+    );
     final playerConfig = List<String>.from(configs[playerName] ?? []);
 
     if (playerConfig.isNotEmpty) {
@@ -205,9 +232,12 @@ class _FarklePageState extends State<FarklePage> with TickerProviderStateMixin {
       isCurrentSelectionValid = false;
       if (diceKept.every((kept) => kept)) {
         diceKept = List.generate(6, (_) => false);
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('نرد ساخن! يمكنك الرمي مرة أخرى')),);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('نرد ساخن! يمكنك الرمي مرة أخرى')),
+        );
       }
       isRolling = true;
+      playRollSound();
       _broadcastTurnState(rolling: true);
       _rollController.forward(from: 0.0);
     });
@@ -217,6 +247,7 @@ class _FarklePageState extends State<FarklePage> with TickerProviderStateMixin {
     if (!isMyTurn || isRolling || hasRolled) return;
     setState(() {
       isRolling = true;
+      playRollSound();
       _broadcastTurnState(rolling: true);
       _rollController.forward(from: 0.0);
     });
@@ -269,7 +300,8 @@ class _FarklePageState extends State<FarklePage> with TickerProviderStateMixin {
   }
 
   void _showDiceSelectionModal() {
-    List<BaseDice> modalDice = dice.map((d) => BaseDice.fromId(d.typeId)).toList();
+    List<BaseDice> modalDice =
+        dice.map((d) => BaseDice.fromId(d.typeId)).toList();
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
@@ -289,39 +321,79 @@ class _FarklePageState extends State<FarklePage> with TickerProviderStateMixin {
                 title: Text(title),
                 subtitle: Text(subtitle),
                 value: hasThisDice,
-                onChanged: (hasThisDice && !hasStandardSlot) ? null : (bool isToggledOn) {
-                  modalSetState(() {
-                    if (isToggledOn) {
-                      final index = modalDice.indexWhere((d) => d is StandardDice);
-                      if (index != -1) modalDice[index] = diceBuilder();
-                    } else {
-                      final index = modalDice.indexWhere((d) => d is T);
-                      if (index != -1) modalDice[index] = StandardDice();
-                    }
-                  });
-                },
+                onChanged:
+                    (hasThisDice && !hasStandardSlot)
+                        ? null
+                        : (bool isToggledOn) {
+                          modalSetState(() {
+                            if (isToggledOn) {
+                              final index = modalDice.indexWhere(
+                                (d) => d is StandardDice,
+                              );
+                              if (index != -1) modalDice[index] = diceBuilder();
+                            } else {
+                              final index = modalDice.indexWhere((d) => d is T);
+                              if (index != -1)
+                                modalDice[index] = StandardDice();
+                            }
+                          });
+                        },
                 secondary: Icon(icon, color: iconColor),
                 activeColor: iconColor,
               );
             }
-            final standardDiceCount = modalDice.where((d) => d is StandardDice).length;
+
+            final standardDiceCount =
+                modalDice.where((d) => d is StandardDice).length;
             return GlassCard(
               padding: const EdgeInsets.only(top: 16.0),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Text("تخصيص النرد", style: Theme.of(context).textTheme.titleLarge?.copyWith(color: Theme.of(context).colorScheme.onSurface)),
+                  Text(
+                    "تخصيص النرد",
+                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                      color: Theme.of(context).colorScheme.onSurface,
+                    ),
+                  ),
                   const SizedBox(height: 8),
-                  Text("النرد العادي المتبقي: $standardDiceCount", style: Theme.of(context).textTheme.bodySmall),
+                  Text(
+                    "النرد العادي المتبقي: $standardDiceCount",
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
                   const Divider(height: 20),
                   Flexible(
                     child: ListView(
                       shrinkWrap: true,
                       children: [
-                        buildDiceSwitchTile<LuckyDice>(title: "النرد المحظوظ", subtitle: "فرصة أعلى للحصول على 1 و 5", icon: Icons.star, iconColor: Colors.amber, diceBuilder: () => LuckyDice()),
-                        buildDiceSwitchTile<CelestialDice>(title: "النرد السماوي", subtitle: "لا يمكن أن يظهر الأرقام 3 أو 4", icon: Icons.wb_sunny, iconColor: Colors.lightBlue.shade200, diceBuilder: () => CelestialDice()),
-                        buildDiceSwitchTile<ShadowDice>(title: "نرد الظل", subtitle: "فرصة أعلى للأرقام المتوسطة (2,3,4)", icon: Icons.nightlight_round, iconColor: Colors.deepPurple.shade300, diceBuilder: () => ShadowDice()),
-                        buildDiceSwitchTile<UnstableDice>(title: "النرد المتقلب", subtitle: "قد يُصلح الرميات السيئة", icon: Icons.whatshot, iconColor: Colors.red.shade400, diceBuilder: () => UnstableDice()),
+                        buildDiceSwitchTile<LuckyDice>(
+                          title: "النرد المحظوظ",
+                          subtitle: "فرصة أعلى للحصول على 1 و 5",
+                          icon: Icons.star,
+                          iconColor: Colors.amber,
+                          diceBuilder: () => LuckyDice(),
+                        ),
+                        buildDiceSwitchTile<CelestialDice>(
+                          title: "النرد السماوي",
+                          subtitle: "لا يمكن أن يظهر الأرقام 3 أو 4",
+                          icon: Icons.wb_sunny,
+                          iconColor: Colors.lightBlue.shade200,
+                          diceBuilder: () => CelestialDice(),
+                        ),
+                        buildDiceSwitchTile<ShadowDice>(
+                          title: "نرد الظل",
+                          subtitle: "فرصة أعلى للأرقام المتوسطة (2,3,4)",
+                          icon: Icons.nightlight_round,
+                          iconColor: Colors.deepPurple.shade300,
+                          diceBuilder: () => ShadowDice(),
+                        ),
+                        buildDiceSwitchTile<UnstableDice>(
+                          title: "النرد المتقلب",
+                          subtitle: "قد يُصلح الرميات السيئة",
+                          icon: Icons.whatshot,
+                          iconColor: Colors.red.shade400,
+                          diceBuilder: () => UnstableDice(),
+                        ),
                       ],
                     ),
                   ),
@@ -333,8 +405,12 @@ class _FarklePageState extends State<FarklePage> with TickerProviderStateMixin {
                       onPressed: () {
                         setState(() => dice = modalDice);
                         if (groupName != null) {
-                          final diceTypeIds = dice.map((d) => d.typeId).toList();
-                          _firebaseService.updatePlayerDiceConfig(groupName!, diceTypeIds);
+                          final diceTypeIds =
+                              dice.map((d) => d.typeId).toList();
+                          _firebaseService.updatePlayerDiceConfig(
+                            groupName!,
+                            diceTypeIds,
+                          );
                         }
                         Navigator.pop(context);
                       },
@@ -354,9 +430,13 @@ class _FarklePageState extends State<FarklePage> with TickerProviderStateMixin {
     Widget buildRuleRow(String score, String combination) {
       return ListTile(
         title: Text(combination),
-        trailing: Text(score, style: const TextStyle(fontWeight: FontWeight.bold)),
+        trailing: Text(
+          score,
+          style: const TextStyle(fontWeight: FontWeight.bold),
+        ),
       );
     }
+
     showDialog(
       context: context,
       builder: (context) {
@@ -382,7 +462,9 @@ class _FarklePageState extends State<FarklePage> with TickerProviderStateMixin {
                 const Divider(),
                 const ListTile(
                   title: Text("4، 5، أو 6 من نفس النوع"),
-                  subtitle: Text("تتضاعف نقاط الثلاثة من نفس النوع لكل نرد إضافي."),
+                  subtitle: Text(
+                    "تتضاعف نقاط الثلاثة من نفس النوع لكل نرد إضافي.",
+                  ),
                 ),
               ],
             ),
@@ -391,7 +473,7 @@ class _FarklePageState extends State<FarklePage> with TickerProviderStateMixin {
             TextButton(
               onPressed: () => Navigator.of(context).pop(),
               child: const Text("حسناً"),
-            )
+            ),
           ],
         );
       },
@@ -422,10 +504,14 @@ class _FarklePageState extends State<FarklePage> with TickerProviderStateMixin {
             children: [
               _buildPlayerInfo(),
               Expanded(
-                child: Center( // Center the prompts
-                  child: hasJoinedGame
-                      ? (gameStarted ? _buildGameArea() : _buildWaitingPrompt())
-                      : _buildJoinGamePrompt(),
+                child: Center(
+                  // Center the prompts
+                  child:
+                      hasJoinedGame
+                          ? (gameStarted
+                              ? _buildGameArea()
+                              : _buildWaitingPrompt())
+                          : _buildJoinGamePrompt(),
                 ),
               ),
               if (hasJoinedGame && gameStarted) _buildControlsArea(),
@@ -448,7 +534,13 @@ class _FarklePageState extends State<FarklePage> with TickerProviderStateMixin {
         color: Theme.of(context).colorScheme.primary,
       ),
       centerTitle: true,
-      title: Text('لعبة فاركل', style: TextStyle(color: Theme.of(context).colorScheme.primary, fontWeight: FontWeight.bold)),
+      title: Text(
+        'لعبة فاركل',
+        style: TextStyle(
+          color: Theme.of(context).colorScheme.primary,
+          fontWeight: FontWeight.bold,
+        ),
+      ),
       // NEW: Add the info button to the AppBar
       actions: [
         IconButton(
@@ -470,9 +562,22 @@ class _FarklePageState extends State<FarklePage> with TickerProviderStateMixin {
           GlassCard(
             child: Column(
               children: [
-                Text('اللاعبون', style: TextStyle(fontWeight: FontWeight.bold, color: Theme.of(context).colorScheme.onSurface)),
+                Text(
+                  'اللاعبون',
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    color: Theme.of(context).colorScheme.onSurface,
+                  ),
+                ),
                 const SizedBox(height: 8),
-                ...playerScores.entries.map((entry) => PlayerScoreRow(name: entry.key, score: entry.value, isCurrent: currentPlayer == entry.key, isMe: localUsername == entry.key)),
+                ...playerScores.entries.map(
+                  (entry) => PlayerScoreRow(
+                    name: entry.key,
+                    score: entry.value,
+                    isCurrent: currentPlayer == entry.key,
+                    isMe: localUsername == entry.key,
+                  ),
+                ),
               ],
             ),
           ),
@@ -484,20 +589,38 @@ class _FarklePageState extends State<FarklePage> with TickerProviderStateMixin {
               children: [
                 Row(
                   children: [
-                    Text('نقاط الدور الحالي: $currentTurnScore', style: TextStyle(color: Theme.of(context).colorScheme.onSurface)),
+                    Text(
+                      'نقاط الدور الحالي: $currentTurnScore',
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.onSurface,
+                      ),
+                    ),
                     if (selectedDiceScore > 0)
                       Padding(
                         padding: const EdgeInsets.only(left: 8.0),
-                        child: Text('+ $selectedDiceScore', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: isCurrentSelectionValid ? Theme.of(context).colorScheme.primary : Colors.redAccent)),
+                        child: Text(
+                          '+ $selectedDiceScore',
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 16,
+                            color:
+                                isCurrentSelectionValid
+                                    ? Theme.of(context).colorScheme.primary
+                                    : Colors.redAccent,
+                          ),
+                        ),
                       ),
                   ],
                 ),
                 if (isMyTurn)
                   IconButton(
-                    icon: Icon(Icons.casino, color: Theme.of(context).colorScheme.secondary),
+                    icon: Icon(
+                      Icons.casino,
+                      color: Theme.of(context).colorScheme.secondary,
+                    ),
                     onPressed: _showDiceSelectionModal,
                     tooltip: 'تخصيص النرد',
-                  )
+                  ),
               ],
             ),
           ),
@@ -523,11 +646,14 @@ class _FarklePageState extends State<FarklePage> with TickerProviderStateMixin {
         }
         final keptCount = keptDiceIndices.length;
         final spacingCount = (keptCount > 1) ? keptCount - 1 : 0;
-        final idealWidth = (availableWidth - (baseSpacing * spacingCount)) / (keptCount == 0 ? 1 : keptCount);
+        final idealWidth =
+            (availableWidth - (baseSpacing * spacingCount)) /
+            (keptCount == 0 ? 1 : keptCount);
         final keptDiceWidth = idealWidth.clamp(minDiceWidth, maxDiceWidth);
-        final keptDiceSpacing = keptCount > 1
-            ? (availableWidth - (keptDiceWidth * keptCount)) / spacingCount
-            : 0.0;
+        final keptDiceSpacing =
+            keptCount > 1
+                ? (availableWidth - (keptDiceWidth * keptCount)) / spacingCount
+                : 0.0;
         return Stack(
           children: List.generate(dice.length, (i) {
             final isKept = diceKept[i];
@@ -536,16 +662,22 @@ class _FarklePageState extends State<FarklePage> with TickerProviderStateMixin {
             if (isKept) {
               final keptIndex = keptDiceIndices.indexOf(i);
               top = keptAreaY;
-              left = horizontalPadding + (keptIndex * (keptDiceWidth + keptDiceSpacing));
+              left =
+                  horizontalPadding +
+                  (keptIndex * (keptDiceWidth + keptDiceSpacing));
               diceWidth = keptDiceWidth;
             } else {
               final rollingIndex = rollingDiceIndices.indexOf(i);
               final row = rollingIndex ~/ 3;
               final col = rollingIndex % 3;
               const rollingDiceSpacing = 15.0;
-              final rollingGridWidth = (3 * maxDiceWidth) + (2 * rollingDiceSpacing);
-              top = rollingCenterY + (row * (maxDiceWidth + rollingDiceSpacing));
-              left = (constraints.maxWidth - rollingGridWidth) / 2 + (col * (maxDiceWidth + rollingDiceSpacing));
+              final rollingGridWidth =
+                  (3 * maxDiceWidth) + (2 * rollingDiceSpacing);
+              top =
+                  rollingCenterY + (row * (maxDiceWidth + rollingDiceSpacing));
+              left =
+                  (constraints.maxWidth - rollingGridWidth) / 2 +
+                  (col * (maxDiceWidth + rollingDiceSpacing));
             }
             return AnimatedPositioned(
               duration: const Duration(milliseconds: 500),
@@ -573,7 +705,8 @@ class _FarklePageState extends State<FarklePage> with TickerProviderStateMixin {
 
   Widget _buildControlsArea() {
     final bool canRoll = isCurrentSelectionValid && !isRolling && isMyTurn;
-    final bool canEnd = (hasRolled || currentTurnScore > 0) && !isRolling && isMyTurn;
+    final bool canEnd =
+        (hasRolled || currentTurnScore > 0) && !isRolling && isMyTurn;
     final bool canInitialRoll = !hasRolled && !isRolling && isMyTurn;
     return Padding(
       padding: const EdgeInsets.all(16.0),
@@ -584,11 +717,28 @@ class _FarklePageState extends State<FarklePage> with TickerProviderStateMixin {
               mainAxisAlignment: MainAxisAlignment.spaceEvenly,
               children: [
                 if (canInitialRoll)
-                   Expanded(child: GameButton(label: 'رمي النرد', onPressed: _initialRoll, isPrimary: true))
+                  Expanded(
+                    child: GameButton(
+                      label: 'رمي النرد',
+                      onPressed: _initialRoll,
+                      isPrimary: true,
+                    ),
+                  )
                 else
-                   Expanded(child: GameButton(label: 'رمي مرة أخرى', onPressed: canRoll ? _rollDiceAction : null, isPrimary: true)),
+                  Expanded(
+                    child: GameButton(
+                      label: 'رمي مرة أخرى',
+                      onPressed: canRoll ? _rollDiceAction : null,
+                      isPrimary: true,
+                    ),
+                  ),
                 const SizedBox(width: 12),
-                Expanded(child: GameButton(label: 'إنهاء الدور', onPressed: canEnd ? () => endTurn() : null)),
+                Expanded(
+                  child: GameButton(
+                    label: 'إنهاء الدور',
+                    onPressed: canEnd ? () => endTurn() : null,
+                  ),
+                ),
               ],
             ),
             const SizedBox(height: 16),
@@ -601,10 +751,14 @@ class _FarklePageState extends State<FarklePage> with TickerProviderStateMixin {
 
   Widget _buildResetButton() {
     final bool haveIVoted = resetVotes.contains(localUsername);
-    final String voteText = 'تصويت لإعادة الضبط (${resetVotes.length}/${playerScores.length})';
+    final String voteText =
+        'تصويت لإعادة الضبط (${resetVotes.length}/${playerScores.length})';
     return GameButton(
       label: voteText,
-      onPressed: haveIVoted ? null : () => _firebaseService.voteToResetFarkleGame(groupName!),
+      onPressed:
+          haveIVoted
+              ? null
+              : () => _firebaseService.voteToResetFarkleGame(groupName!),
       isPrimary: false,
     );
   }
@@ -615,7 +769,12 @@ class _FarklePageState extends State<FarklePage> with TickerProviderStateMixin {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Text('انضم إلى لعبة فاركل', style: Theme.of(context).textTheme.headlineSmall?.copyWith(color: Theme.of(context).colorScheme.onSurface)),
+          Text(
+            'انضم إلى لعبة فاركل',
+            style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+              color: Theme.of(context).colorScheme.onSurface,
+            ),
+          ),
           const SizedBox(height: 24),
           GameButton(label: 'انضمام', onPressed: joinGame, isPrimary: true),
         ],
@@ -625,14 +784,24 @@ class _FarklePageState extends State<FarklePage> with TickerProviderStateMixin {
 
   Widget _buildWaitingPrompt() {
     return GlassCard(
-      child: Text('في انتظار بدء اللعبة...', style: Theme.of(context).textTheme.titleLarge?.copyWith(color: Theme.of(context).colorScheme.onSurface)),
+      child: Text(
+        'في انتظار بدء اللعبة...',
+        style: Theme.of(context).textTheme.titleLarge?.copyWith(
+          color: Theme.of(context).colorScheme.onSurface,
+        ),
+      ),
     );
   }
 
   Widget _buildStartButton() {
     return Padding(
       padding: const EdgeInsets.all(20),
-      child: GameButton(label: 'ابدأ اللعبة', onPressed: startGame, isPrimary: true, isLarge: true),
+      child: GameButton(
+        label: 'ابدأ اللعبة',
+        onPressed: startGame,
+        isPrimary: true,
+        isLarge: true,
+      ),
     );
   }
 }

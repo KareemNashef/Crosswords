@@ -6,7 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:crosswords/Settings/firebase_service.dart';
 import 'package:crosswords/Utilities/color_utils.dart';
 
-// ========== Group Settings Page ========== //
+// ========== Simplified Group Settings Page ========== //
 
 class GroupSettingsPage extends StatefulWidget {
   const GroupSettingsPage({super.key});
@@ -77,7 +77,8 @@ class GroupSettingsPageState extends State<GroupSettingsPage> {
       inGroup = prefs.getBool(_prefInGroupKey) ?? false;
     });
 
-    if (groupNameController.text.isNotEmpty) {
+    // Auto-load group if user was already in one
+    if (inGroup && groupNameController.text.isNotEmpty) {
       await _fetchGroupUsers(groupNameController.text.trim());
     }
   }
@@ -110,33 +111,63 @@ class GroupSettingsPageState extends State<GroupSettingsPage> {
     return null;
   }
 
-  Future<void> _handleJoinGroup() async {
+  // Simplified join/create group method
+  Future<void> _handleJoinOrCreateGroup() async {
     final groupName = groupNameController.text.trim();
     final userName = userNameController.text.trim();
+    
     if (groupName.isEmpty || userName.isEmpty) {
-      _showSnackBar('الرجاء إدخال اسم المستخدم واسم المجموعة.');
+      _showSnackBar('يرجى إدخال اسم المستخدم واسم المجموعة');
       return;
     }
 
     setState(() => isLoading = true);
-    final success = await _firebaseService.joinGroup(
+    
+    // First, try to join with current selected color
+    bool success = await _firebaseService.joinGroup(
       groupName,
       userName,
       selectedColor,
     );
+
+    // If color is taken, try to find an available color automatically
+    if (!success) {
+      await _fetchGroupUsers(groupName);
+      String? availableColor = _findAvailableColor();
+      
+      if (availableColor != null) {
+        success = await _firebaseService.joinGroup(
+          groupName,
+          userName,
+          availableColor,
+        );
+        if (success) {
+          selectedColor = availableColor;
+        }
+      }
+    }
+
     if (success) {
       if (!mounted) return;
       setState(() => inGroup = true);
       await _savePreferences();
       await _fetchGroupUsers(groupName);
-      _showSnackBar(
-        inGroup ? 'تم التحديث بنجاح!' : 'انضمت للمجموعة بنجاح!',
-      );
+      _showSnackBar('تم الانضمام للمجموعة بنجاح!');
     } else {
-      _showSnackBar('تعذّر الانضمام أو التحديث. قد يكون اللون غير متاح.');
-      await _fetchGroupUsers(groupName);
+      _showSnackBar('جميع الألوان محجوزة في هذه المجموعة');
     }
+    
     if (mounted) setState(() => isLoading = false);
+  }
+
+  String? _findAvailableColor() {
+    for (final color in colorOptions) {
+      final colorHex = colorToHexString(color);
+      if (_getUserForColor(colorHex) == null) {
+        return colorHex;
+      }
+    }
+    return null;
   }
 
   Future<void> _handleLeaveGroup() async {
@@ -144,23 +175,56 @@ class GroupSettingsPageState extends State<GroupSettingsPage> {
     final userName = userNameController.text.trim();
     if (groupName.isEmpty || userName.isEmpty) return;
 
+    // Show confirmation dialog
+    final shouldLeave = await _showLeaveDialog();
+    if (!shouldLeave) return;
+
     setState(() => isLoading = true);
     final success = await _firebaseService.leaveGroup(groupName, userName);
+    
     if (success) {
       if (!mounted) return;
-      setState(() => inGroup = false);
-      // Clear group name from preferences after leaving
+      setState(() {
+        inGroup = false;
+        groupUsers.clear();
+      });
       groupNameController.clear();
-      groupUsers.clear();
       await _savePreferences();
-      _showSnackBar('لقد غادرت المجموعة.');
+      _showSnackBar('تم مغادرة المجموعة');
     } else {
-      _showSnackBar('فشل في مغادرة المجموعة.');
+      _showSnackBar('فشل في مغادرة المجموعة');
     }
+    
     if (mounted) setState(() => isLoading = false);
   }
 
+  Future<bool> _showLeaveDialog() async {
+    return await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('مغادرة المجموعة'),
+        content: const Text('هل أنت متأكد من مغادرة المجموعة؟'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('إلغاء'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: const Text('مغادرة'),
+          ),
+        ],
+      ),
+    ) ?? false;
+  }
+
   Future<void> _handleColorSelection(Color color) async {
+    if (!inGroup) {
+      _showSnackBar('يجب الانضمام للمجموعة أولاً');
+      return;
+    }
+
     setState(() => isLoading = true);
 
     final newColorHex = colorToHexString(color);
@@ -177,8 +241,9 @@ class GroupSettingsPageState extends State<GroupSettingsPage> {
       setState(() => selectedColor = newColorHex);
       await _savePreferences();
       await _fetchGroupUsers(groupName);
+      _showSnackBar('تم تغيير اللون بنجاح');
     } else {
-      _showSnackBar('تعذر تحديث اللون. ربما تم التقاطه للتو.');
+      _showSnackBar('هذا اللون محجوز من قبل مستخدم آخر');
       await _fetchGroupUsers(groupName);
     }
 
@@ -189,7 +254,9 @@ class GroupSettingsPageState extends State<GroupSettingsPage> {
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(message, style: const TextStyle(color: Colors.white)),
+          content: Text(message),
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
         ),
       );
     }
@@ -237,11 +304,17 @@ class GroupSettingsPageState extends State<GroupSettingsPage> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                _buildUserProfileCard(),
-                const SizedBox(height: 24),
-                _buildGroupManagementCard(),
-                const SizedBox(height: 24),
-                _buildColorSelectionCard(),
+                if (!inGroup) ...[
+                  _buildJoinGroupCard(),
+                  const SizedBox(height: 16),
+                  _buildHelpCard(),
+                ] else ...[
+                  _buildCurrentGroupCard(),
+                  const SizedBox(height: 16),
+                  _buildColorSelectionCard(),
+                  const SizedBox(height: 16),
+                  _buildMembersCard(),
+                ],
               ],
             ),
           ),
@@ -252,39 +325,76 @@ class GroupSettingsPageState extends State<GroupSettingsPage> {
 
   // ===== Widget Builders =====
 
-  Widget _buildSectionTitle(String title) {
-    return Text(
-      title,
-      style: Theme.of(context).textTheme.titleLarge?.copyWith(
-        color: Theme.of(context).colorScheme.onSurface,
-        fontWeight: FontWeight.bold,
-      ),
-    );
-  }
-
-  Widget _buildUserProfileCard() {
+  Widget _buildJoinGroupCard() {
     return Card(
-      elevation: 2,
+      elevation: 3,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      color: Theme.of(context).cardColor.withValues(alpha:0.5),
       child: Padding(
-        padding: const EdgeInsets.all(16.0),
+        padding: const EdgeInsets.all(20.0),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            _buildSectionTitle('تعريف المستخدم'),
-            const SizedBox(height: 16),
+            Row(
+              children: [
+                Icon(Icons.group_add, color: Theme.of(context).colorScheme.primary),
+                const SizedBox(width: 8),
+                Text(
+                  'انضم إلى مجموعة',
+                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 20),
             TextField(
               controller: userNameController,
               decoration: InputDecoration(
-                labelText: 'اسم المستخدم',
-                floatingLabelBehavior: FloatingLabelBehavior.never,
+                labelText: 'اسمك',
                 prefixIcon: const Icon(Icons.person),
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
                 ),
+                filled: true,
+                fillColor: Theme.of(context).colorScheme.surface,
               ),
-              onEditingComplete: _savePreferences,
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: groupNameController,
+              decoration: InputDecoration(
+                labelText: 'اسم المجموعة',
+                prefixIcon: const Icon(Icons.group),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                filled: true,
+                fillColor: Theme.of(context).colorScheme.surface,
+                helperText: 'اكتب اسم مجموعة موجودة أو إنشاء جديدة',
+              ),
+            ),
+            const SizedBox(height: 24),
+            SizedBox(
+              width: double.infinity,
+              height: 50,
+              child: ElevatedButton(
+                onPressed: isLoading ? null : _handleJoinOrCreateGroup,
+                style: ElevatedButton.styleFrom(
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+                child: isLoading
+                    ? const SizedBox(
+                        height: 20,
+                        width: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Text(
+                        'انضم أو أنشئ مجموعة',
+                        style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                      ),
+              ),
             ),
           ],
         ),
@@ -292,64 +402,97 @@ class GroupSettingsPageState extends State<GroupSettingsPage> {
     );
   }
 
-  Widget _buildGroupManagementCard() {
+  Widget _buildHelpCard() {
     return Card(
-      elevation: 2,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      color: Theme.of(context).cardColor.withValues(alpha:0.5),
+      elevation: 1,
+      color: Theme.of(context).colorScheme.surfaceContainerHighest,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       child: Padding(
         padding: const EdgeInsets.all(16.0),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            _buildSectionTitle('إدارة المجموعة'),
-            const SizedBox(height: 16),
-            TextField(
-              controller: groupNameController,
-              decoration: InputDecoration(
-                labelText: 'اسم المجموعة',
-                floatingLabelBehavior: FloatingLabelBehavior.never,
-                prefixIcon: const Icon(Icons.group),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                suffixIcon: IconButton(
-                  icon: const Icon(Icons.refresh),
-                  tooltip: 'تحديث المجموعة',
-                  onPressed:
-                      isLoading
-                          ? null
-                          : () =>
-                              _fetchGroupUsers(groupNameController.text.trim()),
-                ),
-              ),
-              onSubmitted: (value) {
-                _fetchGroupUsers(value.trim());
-                _savePreferences();
-              },
-            ),
-            const SizedBox(height: 16),
             Row(
               children: [
-                Expanded(
-                  child: OutlinedButton.icon(
-                    icon: const Icon(Icons.logout),
-                    label: const Text('مغادرة'),
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: Theme.of(context).colorScheme.error,
-                    ),
-                    onPressed: isLoading || !inGroup ? null : _handleLeaveGroup,
-                  ),
-                ),
+                Icon(Icons.info_outline, color: Theme.of(context).colorScheme.primary, size: 20),
                 const SizedBox(width: 8),
-                Expanded(
-                  child: ElevatedButton.icon(
-                    icon: const Icon(Icons.login),
-                    label: Text(inGroup ? 'تحديث' : 'انضمام'),
-                    onPressed: isLoading ? null : _handleJoinGroup,
+                Text(
+                  'كيف يعمل؟',
+                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                    fontWeight: FontWeight.bold,
                   ),
                 ),
               ],
+            ),
+            const SizedBox(height: 8),
+            Text(
+              '• اكتب اسمك واسم المجموعة\n'
+              '• إذا كانت المجموعة موجودة، ستنضم إليها\n'
+              '• إذا لم تكن موجودة، ستنشأ مجموعة جديدة\n'
+              '• سيتم اختيار لون متاح لك تلقائياً',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCurrentGroupCard() {
+    return Card(
+      elevation: 3,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: Padding(
+        padding: const EdgeInsets.all(20.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.group, color: Theme.of(context).colorScheme.primary),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'مجموعة: ${groupNameController.text}',
+                        style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      Text(
+                        'المستخدم: ${userNameController.text}',
+                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Container(
+                  width: 30,
+                  height: 30,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: hexStringToColor(selectedColor),
+                    border: Border.all(color: Colors.white, width: 2),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: isLoading ? null : _handleLeaveGroup,
+                icon: const Icon(Icons.exit_to_app),
+                label: const Text('مغادرة المجموعة'),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: Theme.of(context).colorScheme.error,
+                  side: BorderSide(color: Theme.of(context).colorScheme.error),
+                ),
+              ),
             ),
           ],
         ),
@@ -358,127 +501,180 @@ class GroupSettingsPageState extends State<GroupSettingsPage> {
   }
 
   Widget _buildColorSelectionCard() {
-    final currentUserName = userNameController.text.trim();
-    final bool canSelectColor = currentUserName.isNotEmpty && inGroup;
-
     return Card(
       elevation: 2,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      color: Theme.of(context).cardColor.withValues(alpha:0.5),
       child: Padding(
-        padding: const EdgeInsets.all(16.0),
+        padding: const EdgeInsets.all(20.0),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            _buildSectionTitle('اختر اللون'),
+            Row(
+              children: [
+                Icon(Icons.palette, color: Theme.of(context).colorScheme.primary),
+                const SizedBox(width: 8),
+                Text(
+                  'اختر لونك',
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ],
+            ),
             const SizedBox(height: 16),
             if (isLoading)
               const Center(child: CircularProgressIndicator())
-            else if (groupNameController.text.isEmpty)
-              const Center(
-                child: Text('انضمم اولا للمجموعة'),
-              )
             else
               Wrap(
                 alignment: WrapAlignment.center,
-                spacing: 12.0,
-                runSpacing: 12.0,
-                children:
-                    colorOptions.map((color) {
-                      final hexColorString = colorToHexString(color);
-                      final takerUserName = _getUserForColor(hexColorString);
-                      final isSelectedByMe =
-                          selectedColor == hexColorString &&
-                          takerUserName == currentUserName;
-                      final isTakenByOther =
-                          takerUserName != null &&
-                          takerUserName != currentUserName;
+                spacing: 16.0,
+                runSpacing: 16.0,
+                children: colorOptions.map((color) {
+                  final hexColorString = colorToHexString(color);
+                  final takerUserName = _getUserForColor(hexColorString);
+                  final isSelectedByMe = selectedColor == hexColorString;
+                  final isTakenByOther = takerUserName != null && takerUserName != userNameController.text.trim();
 
-                      return _ColorSwatchWithName(
+                  return GestureDetector(
+                    onTap: isTakenByOther ? null : () => _handleColorSelection(color),
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 200),
+                      width: 60,
+                      height: 60,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
                         color: color,
-                        userName: takerUserName,
-                        isSelected: isSelectedByMe,
-                        isTaken: isTakenByOther,
-                        onTap:
-                            !canSelectColor || isTakenByOther
-                                ? null
-                                : () => _handleColorSelection(color),
-                      );
-                    }).toList(),
+                        border: Border.all(
+                          color: isSelectedByMe 
+                              ? Theme.of(context).colorScheme.primary
+                              : Colors.white.withValues(alpha: 0.8),
+                          width: isSelectedByMe ? 4 : 2,
+                        ),
+                        boxShadow: [
+                          if (isSelectedByMe)
+                            BoxShadow(
+                              color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.3),
+                              blurRadius: 8,
+                              spreadRadius: 2,
+                            ),
+                        ],
+                      ),
+                      child: Stack(
+                        children: [
+                          if (isSelectedByMe)
+                            Center(
+                              child: Icon(
+                                Icons.check,
+                                color: color.computeLuminance() > 0.5 ? Colors.black : Colors.white,
+                                size: 24,
+                              ),
+                            ),
+                          if (isTakenByOther)
+                            Container(
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                color: Colors.black.withValues(alpha: 0.5),
+                              ),
+                              child: const Center(
+                                child: Icon(
+                                  Icons.lock,
+                                  color: Colors.white,
+                                  size: 20,
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                  );
+                }).toList(),
               ),
           ],
         ),
       ),
     );
   }
-}
 
-// A widget for the color swatch with the user's name below it.
-class _ColorSwatchWithName extends StatelessWidget {
-  final Color color;
-  final String? userName;
-  final bool isSelected;
-  final bool isTaken;
-  final VoidCallback? onTap;
+  Widget _buildMembersCard() {
+    if (groupUsers.isEmpty) return const SizedBox.shrink();
 
-  const _ColorSwatchWithName({
-    required this.color,
-    this.userName,
-    required this.isSelected,
-    required this.isTaken,
-    this.onTap,
-  });
+    return Card(
+      elevation: 2,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: Padding(
+        padding: const EdgeInsets.all(20.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.people, color: Theme.of(context).colorScheme.primary),
+                const SizedBox(width: 8),
+                Text(
+                  'أعضاء المجموعة (${groupUsers.length})',
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            ...groupUsers.entries.map((entry) {
+              final userName = entry.key;
+              final userColor = hexStringToColor(entry.value);
+              final isCurrentUser = userName == userNameController.text.trim();
 
-  @override
-  Widget build(BuildContext context) {
-    return Opacity(
-      opacity: isTaken ? 0.5 : 1.0,
-      child: Column(
-        children: [
-          GestureDetector(
-            onTap: onTap,
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 200),
-              width: 50,
-              height: 50,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: color,
-                border:
-                    isSelected
-                        ? Border.all(
-                          color: Theme.of(context).colorScheme.primary,
-                          width: 3.5,
-                        )
-                        : Border.all(
-                          color: Colors.white.withValues(alpha:0.8),
-                          width: 1.5,
+              return Container(
+                margin: const EdgeInsets.only(bottom: 8),
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                decoration: BoxDecoration(
+                  color: isCurrentUser 
+                      ? Theme.of(context).colorScheme.primaryContainer
+                      : Theme.of(context).colorScheme.surfaceContainerHighest,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 24,
+                      height: 24,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: userColor,
+                        border: Border.all(color: Colors.white, width: 1.5),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        userName,
+                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                          fontWeight: isCurrentUser ? FontWeight.bold : FontWeight.normal,
                         ),
-              ),
-              child:
-                  isSelected
-                      ? Icon(
-                        Icons.check,
-                        color:
-                            color.computeLuminance() > 0.5
-                                ? Colors.black
-                                : Colors.white,
-                      )
-                      : null,
-            ),
-          ),
-          const SizedBox(height: 6),
-          SizedBox(
-            height: 20,
-            child: Text(
-              userName ?? '',
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-              ),
-              overflow: TextOverflow.ellipsis,
-            ),
-          ),
-        ],
+                      ),
+                    ),
+                    if (isCurrentUser)
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: Theme.of(context).colorScheme.primary,
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Text(
+                          'أنت',
+                          style: TextStyle(
+                            color: Theme.of(context).colorScheme.onPrimary,
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              );
+            }),
+          ],
+        ),
       ),
     );
   }
